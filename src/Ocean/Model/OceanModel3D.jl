@@ -184,10 +184,10 @@ function update_aux!(dg, m::HydrostaticBoussinesqModel, Q, aux, t, params)
   vert_param = params.vert_param
   vert_dQ = params.vert_dQ
   vert_filter = params.vert_filter
-  apply!(Q, (1, 2), dg.grid, vert_filter; horizontal=false)
+  # apply!(Q, (1, 2), dg.grid, vert_filter; horizontal=false)
 
   exp_filter = params.exp_filter
-  apply!(Q, (4,), dg.grid, exp_filter; horizontal=false)
+  # apply!(Q, (4,), dg.grid, exp_filter; horizontal=false)
 
   vert_dg(vert_dQ, Q, vert_param, t; increment = false)
 
@@ -277,7 +277,7 @@ end
   state⁺.θ = state⁻.θ
   state⁺.u = -state⁻.u
   diff⁺.ν∇u = diff⁻.ν∇u
-  diff⁺.κ∇θ = -diff⁻.κ∇θ
+  # diff⁺.κ∇θ = -diff⁻.κ∇θ
 
   return nothing
 end
@@ -306,7 +306,7 @@ end
   state⁺.u = state⁻.u
   # aux⁺.w = -aux⁻.w
   diff⁺.ν∇u = diff⁻.ν∇u
-  diff⁺.κ∇θ = -diff⁻.κ∇θ
+  # diff⁺.κ∇θ = -diff⁻.κ∇θ
 
   return nothing
 end
