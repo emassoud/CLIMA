@@ -64,9 +64,6 @@ function ocean_init_state!(p::SimpleBox, state, aux, coords, t)
   state.θ = 9 + 8z / H
 end
 
-const timeend = 30 * 86400
-const tout = 6 * 60 * 60
-
 let
   MPI.Initialized() || MPI.Init()
   mpicomm = MPI.COMM_WORLD
@@ -92,6 +89,7 @@ let
   N = 4
   Ne = (10, 10, 4)
   L = SVector{3, DFloat}(1e6, 1e6, 400)
+  timeend = 100 * 86400
   H::DFloat = L[3]
   ch::DFloat = sqrt(grav * H)
   cv::DFloat = 0
@@ -102,10 +100,10 @@ let
   topl = StackedBrickTopology(mpicomm, brickrange;
                               periodicity = (false, false, false),
                               boundary = ((1, 1), (1, 1), (2, 2)))
-  @show dt = 120 # (L[1] / c) / Ne[1] / N^2
-  
-  @show nout = ceil(Int64, tout / dt)
-  @show dt = tout / nout
+  @show dt = 240 # (L[1] / c) / Ne[1] / N^2
+  timeend = 4 * 365 * 86400
+  tout = 24 * 60 * 60
+  nout = ceil(Int64, tout / dt)
 
   grid = DiscontinuousSpectralElementGrid(topl,
                                           FloatType = DFloat,

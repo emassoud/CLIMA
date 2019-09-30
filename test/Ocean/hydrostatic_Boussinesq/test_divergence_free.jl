@@ -101,8 +101,8 @@ let
                               periodicity = (false, false, false),
                               boundary = ((1, 1), (1, 1), (2, 2)))
   @show dt = 240 # (L[1] / c) / Ne[1] / N^2
-  timeend = 4 * 365 * 86400
   tout = 24 * 60 * 60
+  nout = ceil(Int64, tout / dt)
 
   grid = DiscontinuousSpectralElementGrid(topl,
                                           FloatType = DFloat,
@@ -114,8 +114,10 @@ let
   αT::DFloat = 2e-4
   νh::DFloat = 1e4
   νz::DFloat = 1e-2
+  κh::DFloat = 0
+  κz::DFloat = 0
   λ_relax::DFloat = 0
-  model = HydrostaticBoussinesqModel(problem, c..., αT, λ_relax, νh, νz)
+  model = HydrostaticBoussinesqModel(problem, c..., αT, λ_relax, νh, νz, κh, κz)
 
   dg = DGModel(model,
                grid,
@@ -179,4 +181,3 @@ let
   nothing
 
 end
-
