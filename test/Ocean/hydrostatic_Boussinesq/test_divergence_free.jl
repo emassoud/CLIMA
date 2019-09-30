@@ -59,7 +59,8 @@ end
 function ocean_init_state!(p::SimpleBox, state, aux, coords, t)
   @inbounds z = coords[3]
   @inbounds H = p.H
-  state.u = @SVector [0,0]
+  state.u = @SVector [rand(),rand()]
+  # state.u = @SVector [0,0]
   state.η = 0
   state.θ = 20
 end
@@ -101,7 +102,7 @@ let
                               periodicity = (false, false, false),
                               boundary = ((1, 1), (1, 1), (2, 2)))
   @show dt = 240 # (L[1] / c) / Ne[1] / N^2
-  tout = 24 * 60 * 60
+  tout = 60 * 60
   nout = ceil(Int64, tout / dt)
 
   grid = DiscontinuousSpectralElementGrid(topl,
@@ -110,7 +111,8 @@ let
                                           polynomialorder = N,
                                          )
 
-  problem = SimpleBox(L..., DFloat(1e-1))
+  τ0_wind = 0 # 1 // 10
+  problem = SimpleBox(L..., DFloat(τ0_wind))
   αT::DFloat = 2e-4
   νh::DFloat = 1e4
   νz::DFloat = 1e-2
