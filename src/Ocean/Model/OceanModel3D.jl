@@ -174,7 +174,7 @@ function update_penalty!(::Rusanov, ::HBModel, Qpenalty::Vars, nM, λ, QM, QP, a
     θP = QP.θ
     uP = QP.u
     wP = QP.w
-    unP = nP[1] * uP[1] + nP[2] * uP[2] + nP[3] * wP
+    unP = nM[1] * uP[1] + nM[2] * uP[2] + nM[3] * wP
 
     # max velocity
     # un = (abs(unP) > abs(unM) ? unP : unM
