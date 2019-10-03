@@ -13,7 +13,8 @@ using ..Mesh.Grids: polynomialorder
 using ..DGmethods.NumericalFluxes: Rusanov, CentralGradPenalty,
                                    CentralNumericalFluxDiffusive
 
-import ..DGmethods.NumericalFluxes: update_jump!
+import ..DGmethods.NumericalFluxes: update_jump!, numerical_flux_nondiffusive!,
+                                    NumericalFluxNonDiffusive
 
 import ..DGmethods: BalanceLaw, vars_aux, vars_state, vars_gradient,
                     vars_diffusive, vars_integrals, flux_nondiffusive!,
@@ -160,7 +161,31 @@ end
 @inline wavespeed(m::HBModel, n⁻, _...) = abs(SVector(m.c1, m.c2, m.c3)' * n⁻)
 
 # We want not have jump penalties on η (since not a flux variable)
-update_jump!(::Rusanov, ::HBModel, Qjump::Vars, _...) = Qjump.η = -0
+function update_penalty!(::Rusanov, ::HBModel, Qpenalty::Vars, nM, λ, QM, QP, auxM,
+                         auxP, t)
+  @inbounds begin
+    Qpenalty.η = -0
+
+    θM = QM.θ
+    uM = QM.u
+    wM = QM.w
+    unM = nM[1] * uM[1] + nM[2] * uM[2] + nM[3] * wM
+
+    θP = QP.θ
+    uP = QP.u
+    wP = QP.w
+    unP = nP[1] * uP[1] + nP[2] * uP[2] + nP[3] * wP
+
+    # max velocity
+    # un = (abs(unP) > abs(unM) ? unP : unM
+
+    # average velocity
+    un = (unM + unP) / 2
+
+    Qpenalty.θ = ((un > 0) ? 1 : -1) * (unM * θM - unP * θP)
+    # Qpenalty.θ = abs(unM) * θM - abs(unP) * θP
+  end
+end
 
 @inline function source!(m::HBModel{P}, source::Vars, state::Vars, aux::Vars,
                          t::Real) where P
@@ -306,7 +331,7 @@ end
   # TODO: in current setup this doesn't matter (check later) b/c vertical
   state⁺.u = state⁻.u
   # aux⁺.w = -aux⁻.w
-  diff⁺.ν∇u = diff⁻.ν∇u
+  diff⁺.ν∇u = -diff⁻.ν∇u
   # diff⁺.κ∇θ = -diff⁻.κ∇θ
 
   return nothing
