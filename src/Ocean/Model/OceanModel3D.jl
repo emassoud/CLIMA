@@ -13,7 +13,7 @@ using ..Mesh.Grids: polynomialorder
 using ..DGmethods.NumericalFluxes: Rusanov, CentralGradPenalty,
                                    CentralNumericalFluxDiffusive
 
-import ..DGmethods.NumericalFluxes: update_jump!, numerical_flux_nondiffusive!,
+import ..DGmethods.NumericalFluxes: update_penalty!, numerical_flux_nondiffusive!,
                                     NumericalFluxNonDiffusive
 
 import ..DGmethods: BalanceLaw, vars_aux, vars_state, vars_gradient,
@@ -168,12 +168,12 @@ function update_penalty!(::Rusanov, ::HBModel, Qpenalty::Vars, nM, λ, QM, QP, a
 
     θM = QM.θ
     uM = QM.u
-    wM = QM.w
+    wM = auxM.w
     unM = nM[1] * uM[1] + nM[2] * uM[2] + nM[3] * wM
 
     θP = QP.θ
     uP = QP.u
-    wP = QP.w
+    wP = auxP.w
     unP = nM[1] * uP[1] + nM[2] * uP[2] + nM[3] * wP
 
     # max velocity
