@@ -1,11 +1,10 @@
 module Ocean3D
 
-export HydrostaticBoussinesqModel, HydrostaticBoussinesqProblem
+export HydrostaticBoussinesqModel, HydrostaticBoussinesqProblem, OceanDGModel
 
 using StaticArrays
 using ..VariableTemplates
 using LinearAlgebra: I, dot, Diagonal
-using ..DGmethods: init_ode_state
 using ..PlanetParameters: grav
 using ..Mesh.Filters: CutoffFilter, apply!, ExponentialFilter
 using ..Mesh.Grids: polynomialorder
@@ -23,8 +22,9 @@ import ..DGmethods: BalanceLaw, vars_aux, vars_state, vars_gradient,
                     gradvariables!, init_aux!, init_state!,
                     LocalGeometry, indefinite_stack_integral!,
                     reverse_indefinite_stack_integral!, integrate_aux!,
-                    init_ode_param, DGModel, nodal_update_aux!, diffusive!,
-                    copy_stack_field_down!, surface_flux!
+                    DGModel, nodal_update_aux!, diffusive!,
+                    copy_stack_field_down!, surface_flux!,
+                    create_state
 
 ×(a::SVector, b::SVector) = StaticArrays.cross(a, b)
 
@@ -51,15 +51,18 @@ HBProblem = HydrostaticBoussinesqProblem
 
 struct HBVerticalSupplementModel <: BalanceLaw end
 
-function init_ode_param(dg::DGModel, m::HydrostaticBoussinesqModel)
-  vert_dg = DGModel(dg, HBVerticalSupplementModel())
-  vert_param = init_ode_param(vert_dg)
-  vert_dQ = init_ode_state(vert_dg, 948)
-  vert_filter = CutoffFilter(dg.grid, polynomialorder(dg.grid)-1)
-  exp_filter = ExponentialFilter(dg.grid, 1, 32)
+function OceanDGModel(bl::HydrostaticBoussinesqModel, grid, numfluxnondiff,
+                      numfluxdiff, gradnumflux; kwargs...)
 
-  return (vert_dg = vert_dg, vert_param = vert_param, vert_dQ = vert_dQ,
-          vert_filter = vert_filter, exp_filter=exp_filter)
+  vert_dg = DGModel(HBVerticalSupplementModel(), grid, numfluxnondiff,
+                    numfluxdiff, gradnumflux)
+  vert_dQ = create_state(vert_dg.balancelaw, vert_dg.grid, 948)
+  vert_filter = CutoffFilter(grid, polynomialorder(grid)-1)
+  exp_filter = ExponentialFilter(grid, 1, 32)
+  modeldata = (vert_dg=vert_dg, vert_dQ=vert_dQ, vert_filter=vert_filter,
+               exp_filter=exp_filter)
+  DGModel(bl, grid, numfluxnondiff, numfluxdiff, gradnumflux; kwargs...,
+          modeldata=modeldata)
 end
 
 # If this order is changed check the filter usage!
@@ -166,6 +169,7 @@ function update_penalty!(::Rusanov, ::HBModel, Qpenalty::Vars, nM, λ, QM, QP, a
   @inbounds begin
     Qpenalty.η = -0
 
+    #=
     θM = QM.θ
     uM = QM.u
     wM = auxM.w
@@ -184,6 +188,7 @@ function update_penalty!(::Rusanov, ::HBModel, Qpenalty::Vars, nM, λ, QM, QP, a
 
     Qpenalty.θ = ((un > 0) ? 1 : -1) * (unM * θM - unP * θP)
     # Qpenalty.θ = abs(unM) * θM - abs(unP) * θP
+    =#
   end
 end
 
@@ -203,19 +208,19 @@ end
   return nothing
 end
 
-function update_aux!(dg, m::HydrostaticBoussinesqModel, Q, aux, t, params)
+function update_aux!(dg, m::HydrostaticBoussinesqModel, Q, aux, t)
+  modeldata = dg.modeldata
   # Compute DG gradient of u -> aux.w
-  vert_dg = params.vert_dg
-  vert_param = params.vert_param
-  vert_dQ = params.vert_dQ
+  vert_dg = modeldata.vert_dg
+  vert_dQ = modeldata.vert_dQ
   # required to ensure that after integration velocity field is diveregnce free
-  vert_filter = params.vert_filter
+  vert_filter = modeldata.vert_filter
   apply!(Q, (1, 2), dg.grid, vert_filter; horizontal=false)
 
-  exp_filter = params.exp_filter
+  exp_filter = modeldata.exp_filter
   # apply!(Q, (4,), dg.grid, exp_filter; horizontal=false)
 
-  vert_dg(vert_dQ, Q, vert_param, t; increment = false)
+  vert_dg(vert_dQ, Q, nothing, t; increment = false)
 
   # Copy from vert_dQ.η which is realy ∇h•u into aux.w (which will be
   # integrated)

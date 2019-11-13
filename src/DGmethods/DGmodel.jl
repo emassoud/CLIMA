@@ -3,7 +3,7 @@ struct EveryDirection <: Direction end
 struct HorizontalDirection <: Direction end
 struct VerticalDirection <: Direction end
 
-struct DGModel{BL,G,NFND,NFD,GNF,AS,DS,D}
+struct DGModel{BL,G,NFND,NFD,GNF,AS,DS,D,MD}
   balancelaw::BL
   grid::G
   numfluxnondiff::NFND
@@ -12,13 +12,14 @@ struct DGModel{BL,G,NFND,NFD,GNF,AS,DS,D}
   auxstate::AS
   diffstate::DS
   direction::D
+  modeldata::MD
 end
 function DGModel(balancelaw, grid, numfluxnondiff, numfluxdiff, gradnumflux;
                  auxstate=create_auxstate(balancelaw, grid),
                  diffstate=create_diffstate(balancelaw, grid),
-                 direction=EveryDirection())
+                 direction=EveryDirection(), modeldata=nothing)
   DGModel(balancelaw, grid, numfluxnondiff, numfluxdiff, gradnumflux, auxstate,
-          diffstate, direction)
+          diffstate, direction, modeldata)
 end
 function DGModel(dg::DGModel, bl::BalanceLaw)
   return DGModel(bl, dg.grid, dg.numfluxnondiff, dg.numfluxdiff,
@@ -252,7 +253,7 @@ end
 function copy_stack_field_down!(dg::DGModel, m::BalanceLaw,
                                 auxstate::MPIStateArray, fldin, fldout)
 
-  device = typeof(auxstate.Q) <: Array ? CPU() : CUDA()
+  device = typeof(auxstate.data) <: Array ? CPU() : CUDA()
 
   grid = dg.grid
   topology = grid.topology
@@ -272,6 +273,6 @@ function copy_stack_field_down!(dg::DGModel, m::BalanceLaw,
 
   @launch(device, threads=(Nq, Nqk, 1), blocks=nhorzelem,
           knl_copy_stack_field_down!(Val(dim), Val(polyorder), Val(nvertelem),
-                                     auxstate.Q, 1:nhorzelem, Val(fldin),
+                                     auxstate.data, 1:nhorzelem, Val(fldin),
                                      Val(fldout)))
 end

@@ -121,16 +121,14 @@ let
   λ_relax::DFloat = 0
   model = HydrostaticBoussinesqModel(problem, c..., αT, λ_relax, νh, νz, κh, κz)
 
-  dg = DGModel(model,
-               grid,
-               Rusanov(),
-               CentralNumericalFluxDiffusive(),
-               CentralGradPenalty())
+  dg = OceanDGModel(model,
+                    grid,
+                    Rusanov(),
+                    CentralNumericalFluxDiffusive(),
+                    CentralGradPenalty())
 
-  param = init_ode_param(dg)
-
-  Q = init_ode_state(dg, param, DFloat(0))
-  update_aux!(dg, model, Q, param.aux, DFloat(0), param.blparam)
+  Q = init_ode_state(dg, DFloat(0))
+  update_aux!(dg, model, Q, dg.auxstate, DFloat(0))
 
   step = [0]
   vtkpath = "vtk_hydrostatic_Boussinesq_test_divergence_free"
@@ -141,7 +139,7 @@ let
     @info "doing VTK output" outprefix
     statenames = flattenednames(vars_state(model, eltype(Q)))
     auxnames = flattenednames(vars_aux(model, eltype(Q)))
-    writevtk(outprefix, Q, dg, statenames, param.aux, auxnames)
+    writevtk(outprefix, Q, dg, statenames, dg.auxstate, auxnames)
   end
   do_output(step)
   @show nout = ceil(Int64, tout / dt)
@@ -175,7 +173,7 @@ let
   norm(Q₀) = %.16e
   ArrayType = %s""" eng0 ArrayType
 
-  solve!(Q, lsrk, param; timeend=timeend, callbacks=(cbinfo,cbvtk))
+  solve!(Q, lsrk, nothing; timeend=timeend, callbacks=(cbinfo,cbvtk))
 
   # TODO: initialize with random velocity field?
   # TODO: Add test to make sure θ remains constant!
