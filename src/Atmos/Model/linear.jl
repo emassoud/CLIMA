@@ -9,8 +9,8 @@ vars_aux(lm::AtmosLinearModel, FT) = vars_aux(lm.atmos,FT)
 vars_integrals(lm::AtmosLinearModel, FT) = @vars()
 
 
-update_aux!(dg::DGModel, lm::AtmosLinearModel, Q::MPIStateArray, auxstate::MPIStateArray, t::Real) = nothing
-integrate_aux!(lm::AtmosLinearModel, integ::Vars, state::Vars, aux::Vars) = nothing
+# update_aux!(dg::DGModel, lm::AtmosLinearModel, Q::MPIStateArray, auxstate::MPIStateArray, t::Real) = nothing
+# integrate_aux!(lm::AtmosLinearModel, integ::Vars, state::Vars, aux::Vars) = nothing
 flux_diffusive!(lm::AtmosLinearModel, flux::Grad, state::Vars, diffusive::Vars, aux::Vars, t::Real) = nothing
 function wavespeed(lm::AtmosLinearModel, nM, state::Vars, aux::Vars, t::Real)
   ref = aux.ref_state
@@ -23,8 +23,8 @@ end
 function boundary_state!(nf::CentralNumericalFluxDiffusive, lm::AtmosLinearModel, x...)
   nothing
 end
-init_aux!(lm::AtmosLinearModel, aux::Vars, geom::LocalGeometry) = nothing
-init_state!(lm::AtmosLinearModel, state::Vars, aux::Vars, coords, t) = nothing
+# init_aux!(lm::AtmosLinearModel, aux::Vars, geom::LocalGeometry) = nothing
+# init_state!(lm::AtmosLinearModel, state::Vars, aux::Vars, coords, t) = nothing
 
 
 struct AtmosAcousticLinearModel{M} <: AtmosLinearModel
