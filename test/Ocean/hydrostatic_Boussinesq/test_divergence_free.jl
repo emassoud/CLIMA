@@ -18,6 +18,7 @@ using CLIMA.PlanetParameters: grav
 import CLIMA.Ocean3D: ocean_init_aux!, ocean_init_state!, NoFlux_NoSlip,
                       FreeSlip, ocean_boundary_state!
 import CLIMA.DGmethods: update_aux!, vars_state, vars_aux
+using CLIMA.VariableTemplates
 
 @static if haspkg("CuArrays")
   using CUDAdrv
@@ -155,14 +156,24 @@ let
       starttime[] = now()
     else
       energy = norm(Q)
+      maxQ =  Vars{vars_state(model, DFloat)}(maximum(Q, dims=(1,3)))
+      minQ =  Vars{vars_state(model, DFloat)}(minimum(Q, dims=(1,3)))
       @info @sprintf("""Update
                      simtime = %.16e
                      runtime = %s
-                     norm(Q) = %.16e""", ODESolvers.gettime(lsrk),
+                     norm(Q) = %.16e
+                     extrema(θ) = (%.16e, %.16e)
+                     Δθ = %.16e
+                     """,
+                     ODESolvers.gettime(lsrk),
                      Dates.format(convert(Dates.DateTime,
                                           Dates.now()-starttime[]),
                                   Dates.dateformat"HH:MM:SS"),
-                     energy)
+                     energy,
+                     maxQ.θ,
+                     minQ.θ,
+                     maxQ.θ - minQ.θ)
+      nothing
     end
   end
 
