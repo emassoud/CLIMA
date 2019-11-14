@@ -247,17 +247,28 @@ function banded_matrix(f!, dg::DGModel,
             nhorzelem)
   end
   fill!(A, zero(FT))
+  host_A = Array(A)
+  host_Q_data = Array(Q.data)
+  host_dQ_data = Array(dQ.data)
 
   # loop through all DOFs in a column and compute the matrix column
   for ev = 1:nvertelem
     for s = 1:nstate
       for k = 1:Nq
         # Set a single 1 per column and rest 0
+        @launch(CPU(), threads=(Nq, Nqj, Nq), blocks=(nvertelem, nhorzelem),
+                knl_set_banded_data!(bl, Val(dim), Val(N), Val(nvertelem),
+                                     host_Q_data, k, s, ev, 1:nhorzelem,
+                                     1:nvertelem))
+
         @launch(device, threads=(Nq, Nqj, Nq), blocks=(nvertelem, nhorzelem),
                 knl_set_banded_data!(bl, Val(dim), Val(N), Val(nvertelem),
                                      Q.data, k, s, ev, 1:nhorzelem,
                                      1:nvertelem))
 
+        @assert Array(Q.data) == host_Q_data
+
+        fill!(dQ.data, zero(FT))
         # Get the matrix column
         f!(dQ, Q, args...)
 
@@ -268,9 +279,18 @@ function banded_matrix(f!, dg::DGModel,
                                        Val(p), Val(q), Val(eband+1),
                                        A, dQ.data, k, s, ev, 1:nhorzelem,
                                        -eband:eband))
+
+        copyto!(host_dQ_data, dQ.data)
+        @launch(CPU(), threads=(Nq, Nqj, Nq),
+                blocks=(2 * eband + 1, nhorzelem),
+                knl_set_banded_matrix!(bl, Val(dim), Val(N), Val(nvertelem),
+                                       Val(p), Val(q), Val(eband+1),
+                                       host_A, host_dQ_data, k, s, ev, 1:nhorzelem,
+                                       -eband:eband))
       end
     end
   end
+  @assert Array(A) == host_A
   A
 end
 

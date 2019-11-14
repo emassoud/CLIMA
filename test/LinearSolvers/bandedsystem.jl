@@ -57,14 +57,16 @@ let
   # Mesh generation parameters
   N = 4
   Nq = N+1
-  Neh = 10
-  Nev = 4
+  Neh = 1
+  Nev = 2
 
   @testset "$(@__FILE__) DGModel matrix" begin
     for AT in ArrayTypes
       for FT in (Float64, Float32)
         for dim = (2, 3)
           for single_column in (false, true)
+            println()
+            @show (AT, FT, dim, single_column)
             # Setup the topology
             if dim == 2
               brickrange = (range(FT(0); length=Neh+1, stop=1),
@@ -92,6 +94,42 @@ let
               end
               (ξ1, ξ2, ξ3)
             end
+
+            grid_array = DiscontinuousSpectralElementGrid(topl,
+                                                    FloatType = FT,
+                                                    DeviceArray = Array,
+                                                    polynomialorder = N,
+                                                    meshwarp = warpfun)
+            model_array = AtmosModel(NoOrientation(),
+                               HydrostaticState(IsothermalProfile(FT(T_0)),
+                                                FT(0)),
+                               ConstantViscosityWithDivergence(0.0),
+                               DryModel(),
+                               NoRadiation(),
+                               nothing,
+                               NoFluxBC(),
+                               init_state!)
+            linear_model = AtmosAcousticLinearModel(model_array)
+
+            # the nonlinear model is needed so we can grab the auxstate below
+            dg_array = DGModel(model_array,
+                         grid_array,
+                         Rusanov(),
+                         CentralNumericalFluxDiffusive(),
+                         CentralGradPenalty())
+            dg_linear_array = DGModel(linear_model,
+                                grid_array,
+                                Rusanov(),
+                                CentralNumericalFluxDiffusive(),
+                                CentralGradPenalty();
+                                direction=VerticalDirection(),
+                                auxstate=dg_array.auxstate)
+
+            A_banded_array = banded_matrix(dg_linear_array,
+                                     MPIStateArray(dg_array),
+                                     MPIStateArray(dg_array);
+                                     single_column=single_column)
+
 
             # create the actual grid
             grid = DiscontinuousSpectralElementGrid(topl,
@@ -128,23 +166,25 @@ let
                                      MPIStateArray(dg),
                                      MPIStateArray(dg);
                                      single_column=single_column)
+            @show extrema(Float32.(Array(A_banded)) .≈ Float32.(A_banded_array))
 
-            Q = init_ode_state(dg, FT(0))
-            dQ1 = MPIStateArray(dg_linear)
-            dQ2 = MPIStateArray(dg_linear)
+            # Q = init_ode_state(dg, FT(0))
+            # dQ1 = MPIStateArray(dg_linear)
+            # dQ2 = MPIStateArray(dg_linear)
 
-            dg_linear(dQ1, Q, nothing, 0; increment=false)
-            Q.data .= dQ1.data
+            # dg_linear(dQ1, Q, nothing, 0; increment=false)
+            # Q.data .= dQ1.data
 
-            dg_linear(dQ1, Q, nothing, 0; increment=false)
-            banded_matrix_vector_product!(dg_linear, A_banded, dQ2, Q)
-            @test dQ1.realdata ≈ dQ2.realdata
+            # dg_linear(dQ1, Q, nothing, 0; increment=false)
+            # banded_matrix_vector_product!(dg_linear, A_banded, dQ2, Q)
+            # @show dQ1.realdata ≈ dQ2.realdata
           end
         end
       end
     end
   end
 
+  #=
   @testset "$(@__FILE__) linear operator matrix" begin
     for AT in ArrayTypes
       for FT in (Float64, Float32)
@@ -235,6 +275,7 @@ let
       end
     end
   end
+  =#
 end
 
 nothing
