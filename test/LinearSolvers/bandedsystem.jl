@@ -102,12 +102,12 @@ let
             model = AtmosModel(NoOrientation(),
                                HydrostaticState(IsothermalProfile(FT(T_0)),
                                                 FT(0)),
-            ConstantViscosityWithDivergence(0.0),
-            DryModel(),
-            NoRadiation(),
-            nothing,
-            NoFluxBC(),
-            init_state!)
+                               ConstantViscosityWithDivergence(0.0),
+                               DryModel(),
+                               NoRadiation(),
+                               nothing,
+                               NoFluxBC(),
+                               init_state!)
             linear_model = AtmosAcousticLinearModel(model)
 
             # the nonlinear model is needed so we can grab the auxstate below
@@ -187,12 +187,12 @@ let
             model = AtmosModel(NoOrientation(),
                                HydrostaticState(IsothermalProfile(FT(T_0)),
                                                 FT(0)),
-            ConstantViscosityWithDivergence(0.0),
-            DryModel(),
-            NoRadiation(),
-            nothing,
-            NoFluxBC(),
-            init_state!)
+                               ConstantViscosityWithDivergence(0.0),
+                               DryModel(),
+                               NoRadiation(),
+                               nothing,
+                               NoFluxBC(),
+                               init_state!)
             linear_model = AtmosAcousticLinearModel(model)
 
             # the nonlinear model is needed so we can grab the auxstate below
