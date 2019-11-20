@@ -20,19 +20,15 @@ end
 
 export MPIStateArray, euclidean_distance, weightedsum
 
-@enum BufferKind begin
-  Host
-  Pinned
-  HostBuffer
-  DeviceBuffer
-end
+include("buffers.jl")
+using .Buffers
 
 """
     MPIStateArray{FT, DATN<:AbstractArray{FT,3}, DAI1, DAV,
-                  DAT2<:AbstractArray{FT,2}} <: AbstractArray{FT, 3}
+                  DoubleBuffer} <: AbstractArray{FT, 3}
 """
 struct MPIStateArray{FT, DATN<:AbstractArray{FT,3}, DAI1, DAV,
-                     DAT2<:AbstractArray{FT,2}, Queue <: AbstractArray{FT, 2}} <: AbstractArray{FT, 3}
+                     Buffer <: DoubleBuffer} <: AbstractArray{FT, 3}
   mpicomm::MPI.Comm
   data::DATN
   realdata::DAV
@@ -46,51 +42,29 @@ struct MPIStateArray{FT, DATN<:AbstractArray{FT,3}, DAI1, DAV,
   sendreq::Array{MPI.Request, 1}
   recvreq::Array{MPI.Request, 1}
 
-  sendQ::Queue
-  recvQ::Queue
+  send_buffer::Buffer
+  recv_buffer::Buffer
 
   nabrtorank::Array{Int64, 1}
   nabrtovmaprecv::Array{UnitRange{Int64}, 1}
   nabrtovmapsend::Array{UnitRange{Int64}, 1}
 
-  device_send_buffer::DAT2
-  device_recv_buffer::DAT2
-
   weights::DATN
 
   commtag::Int
 
-  bufferkind::BufferKind
-
   function MPIStateArray{FT}(mpicomm, DA, Np, nstate, numelem, realelems,
                              ghostelems, vmaprecv, vmapsend, nabrtorank,
-                             nabrtovmaprecv, nabrtovmapsend, weights, commtag
+                             nabrtovmaprecv, nabrtovmapsend, weights, commtag,
                              bufferkind = Host
                             ) where {FT}
     data = similar(DA, FT, Np, nstate, numelem)
 
-    device_recv_buffer = similar(data, FT, nstate, length(vmaprecv))
-    device_send_buffer = similar(data, FT, nstate, length(vmapsend))
+    recv_buffer = DoubleBuffer{FT}(DA, bufferkind, nstate, length(vmaprecv))
+    send_buffer = DoubleBuffer{FT}(DA, bufferkind, nstate, length(vmapsend))
 
     realdata = view(data, ntuple(i -> Colon(), ndims(data) - 1)..., realelems)
     DAV = typeof(realdata)
-
-    # TODO use pinned memory or use CUDA memory
-    # Either:
-    # - Alloc CUDAdrv.HostBuffer directly
-    # - Call `CUDAdrv.register` on buffer and `CUDAdrv.unregister`
-
-    if bufferkind == Host
-      sendQ = zeros(FT, nstate, length(vmapsend))
-      recvQ = zeros(FT, nstate, length(vmaprecv))
-    elseif bufferkind == Pinned
-      sendQ = zeros(FT, nstate, length(vmapsend))
-      recvQ = zeros(FT, nstate, length(vmaprecv))
-      register(sendQ)
-      register(recvQ)
-    else
-      error("Bufferkind $bufferkind is not implemented yet")
-    end
 
     nnabr = length(nabrtorank)
     sendreq = fill(MPI.REQUEST_NULL, nnabr)
@@ -101,42 +75,31 @@ struct MPIStateArray{FT, DATN<:AbstractArray{FT,3}, DAI1, DAV,
     # anything).
     #
     # Better way than checking the type names?
-    if typeof(vmaprecv).name != typeof(data).name
+    if nameof(typeof(vmaprecv)) != nameof(typeof(data))
       vmaprecv = copyto!(similar(DA, eltype(vmaprecv), size(vmaprecv)),
                          vmaprecv)
     end
-    if typeof(vmapsend).name != typeof(data).name
+    if nameof(typeof(vmapsend)) != nameof(typeof(data))
       vmapsend = copyto!(similar(DA, eltype(vmapsend), size(vmapsend)),
                          vmapsend)
     end
-    if typeof(weights).name != typeof(data).name
+    if nameof(typeof(weights)) != nameof(typeof(data))
       weights = copyto!(similar(DA, eltype(weights), size(weights)), weights)
     end
 
     DAI1 = typeof(vmaprecv)
     DAT2 = typeof(device_recv_buffer)
-    arr = new{FT, typeof(data), DAI1, DAV, DAT2, typeof(sendQ)}(
+    return new{FT, typeof(data), DAI1, DAV, typeof(send_buffer)}(
               mpicomm, data, realdata,
               realelems, ghostelems,
               vmaprecv, vmapsend,
               sendreq, recvreq,
-              sendQ,
-              recvQ,
+              send_buffer,
+              recv_buffer,
               nabrtorank,
               nabrtovmaprecv,
               nabrtovmapsend,
-              device_send_buffer,
-              device_recv_buffer,
-              weights, commtag,
-              bufferkind)
-
-    finalizer(arr) do x
-      if x.bufferkind == Pinned
-        unregister(x.sendQ)
-        unregister(x.recvQ)
-      end
-    end
-    return arr
+              weights, commtag)
   end
 end
 
@@ -297,12 +260,14 @@ function start_ghost_exchange!(Q::MPIStateArray; dorecvs=true)
   finish_ghost_send!(Q)
 
   # pack data in send buffer
-  fillsendbuf!(Q.sendQ, Q.device_send_buffer, Q.data, Q.vmapsend)
+  fillsendbuf!(Q.send_buffer, Q.data, Q.vmapsend)
+
+  sendQ = Q.send_buffer.secondary
 
   # post MPI sends
   nnabr = length(Q.nabrtorank)
   for n = 1:nnabr
-    Q.sendreq[n] = MPI.Isend((@view Q.sendQ[:, Q.nabrtovmapsend[n]]),
+    Q.sendreq[n] = MPI.Isend((@view sendQ[:, Q.nabrtovmapsend[n]]),
                            Q.nabrtorank[n], Q.commtag, Q.mpicomm)
   end
 end
@@ -330,7 +295,7 @@ function finish_ghost_recv!(Q::MPIStateArray)
   MPI.Waitall!(Q.recvreq)
 
   # copy data to state vectors
-  transferrecvbuf!(Q.device_recv_buffer, Q.recvQ, Q.data, Q.vmaprecv)
+  transferrecvbuf!(Q.recv_buffer, Q.data, Q.vmaprecv)
 end
 
 """
@@ -339,60 +304,6 @@ end
 Waits on the send of data to be complete
 """
 finish_ghost_send!(Q::MPIStateArray) = MPI.Waitall!(Q.sendreq)
-
-# {{{ MPI Buffer handling
-function _fillsendbuf!(sendbuf, buf, vmapsend)
-  if length(vmapsend) > 0
-    Np = size(buf, 1)
-    nvar = size(buf, 2)
-
-    threads = 256
-    blocks = div(length(vmapsend) + threads - 1, threads)
-    @launch(device(buf), threads=threads, blocks=blocks,
-            knl_fillsendbuf!(Val(Np), Val(nvar), sendbuf, buf, vmapsend,
-                             length(vmapsend)))
-  end
-end
-
-function fillsendbuf!(host_sendbuf::Array, device_sendbuf::Array, buf::Array,
-                      vmapsend::Array)
-  _fillsendbuf!(host_sendbuf, buf, vmapsend)
-end
-
-function fillsendbuf!(host_sendbuf, device_sendbuf, buf, vmapsend)
-  _fillsendbuf!(device_sendbuf, buf, vmapsend,)
-
-  if length(vmapsend) > 0
-    copyto!(host_sendbuf, device_sendbuf)
-  end
-end
-
-function _transferrecvbuf!(buf, recvbuf, vmaprecv)
-  if length(vmaprecv) > 0
-    Np = size(buf, 1)
-    nvar = size(buf, 2)
-
-    threads = 256
-    blocks = div(length(vmaprecv) + threads - 1, threads)
-    @launch(device(buf), threads=threads, blocks=blocks,
-            knl_transferrecvbuf!(Val(Np), Val(nvar), buf, recvbuf,
-                                 vmaprecv, length(vmaprecv)))
-  end
-end
-
-function transferrecvbuf!(device_recvbuf::Array, host_recvbuf::Array,
-                          buf::Array, vmaprecv::Array)
-  _transferrecvbuf!(buf, host_recvbuf, vmaprecv)
-end
-
-function transferrecvbuf!(device_recvbuf, host_recvbuf, buf, vmaprecv)
-  if length(vmaprecv) > 0
-    copyto!(device_recvbuf, host_recvbuf)
-  end
-
-  _transferrecvbuf!(buf, device_recvbuf, vmaprecv)
-end
-# }}}
 
 # Integral based metrics
 function LinearAlgebra.norm(Q::MPIStateArray, p::Real=2, weighted::Bool=true; dims=nothing)
@@ -568,9 +479,6 @@ device(Q::MPIStateArray) = device(Q.data)
 realview(Q::Union{Array, SArray, MArray}) = Q
 realview(Q::MPIStateArray) = Q.realdata
 
-register(x) = nothing
-unregister(x) = nothing
-
 @init @require CuArrays = "3a865a2d-5b23-5a0f-bc46-62713ec82fae" begin
   using .CuArrays
   using .CuArrays.CUDAnative
@@ -591,20 +499,6 @@ unregister(x) = nothing
   end
   transform_cuarray(mpisa::MPIStateArray) = mpisa.realdata
   transform_cuarray(x) = x
-
-  function register(arr) 
-    GC.@preserve arr begin
-      Mem.register(Mem.HostBuffer, pointer(arr), sizeof(arr), Mem.HOSTREGISTER_DEVICEMAP)
-    end
-  end
-
-  function unregister(arr)
-    GC.@preserve arr begin
-      Mem.register(pointer(arr))
-    end
-  end
 end
-
-include("MPIStateArrays_kernels.jl")
 
 end
