@@ -10,7 +10,7 @@ using ..MoistThermodynamics
 using ..PlanetParameters
 import ..MoistThermodynamics: internal_energy
 using ..SubgridScaleParameters
-using GPUifyLoops
+using GPUifyLoops, Unitful
 using ..MPIStateArrays: MPIStateArray
 
 import CLIMA.DGmethods: BalanceLaw, vars_aux, vars_state, vars_gradient,
@@ -21,6 +21,9 @@ import CLIMA.DGmethods: BalanceLaw, vars_aux, vars_state, vars_gradient,
                         resolutionmetric, DGModel, num_integrals,
                         nodal_update_aux!, indefinite_stack_integral!,
                         reverse_indefinite_stack_integral!
+# FIXME: Integrate into above
+import CLIMA.DGmethods: space_unit, time_unit, mass_unit, temp_unit
+using CLIMA.DGmethods: energy_unit, flux_unit, gravp_unit, shc_unit, force_unit, pressure_unit, acc_unit
 using ..DGmethods.NumericalFluxes
 
 """
@@ -46,11 +49,16 @@ struct AtmosModel{O,RS,T,M,R,S,BC,IS} <: BalanceLaw
   init_state::IS
 end
 
+space_unit(::AtmosModel) = u"m"
+time_unit(::AtmosModel) = u"s"
+mass_unit(::AtmosModel) = u"kg"
+temp_unit(::AtmosModel) = u"K"
+
 function vars_state(m::AtmosModel, FT)
   @vars begin
-    ρ::FT
-    ρu::SVector{3,FT}
-    ρe::FT
+    ρ::U(FT, u"kg*m^-3")
+    ρu::SVector{3, U(FT, u"kg/m^2/s")}
+    ρe::U(FT, u"J/m^3")
     turbulence::vars_state(m.turbulence, FT)
     moisture::vars_state(m.moisture, FT)
     radiation::vars_state(m.radiation, FT)
@@ -58,16 +66,16 @@ function vars_state(m::AtmosModel, FT)
 end
 function vars_gradient(m::AtmosModel, FT)
   @vars begin
-    u::SVector{3,FT}
-    h_tot::FT
+    u::SVector{3, U(FT, u"m/s")}
+    h_tot::U(FT, u"J/kg")
     turbulence::vars_gradient(m.turbulence,FT)
     moisture::vars_gradient(m.moisture,FT)
   end
 end
 function vars_diffusive(m::AtmosModel, FT)
   @vars begin
-    ρτ::SHermitianCompact{3,FT,6}
-    ρd_h_tot::SVector{3,FT}
+    ρτ::SHermitianCompact{3, U(FT, u"kg/m/s^2"), 6}
+    ρd_h_tot::SVector{3, U(FT, u"J/m^2/s")}
     turbulence::vars_diffusive(m.turbulence,FT)
     moisture::vars_diffusive(m.moisture,FT)
   end
@@ -78,7 +86,7 @@ function vars_aux(m::AtmosModel, FT)
   @vars begin
     ∫dz::vars_integrals(m, FT)
     ∫dnz::vars_integrals(m, FT)
-    coord::SVector{3,FT}
+    coord::SVector{3, U(FT, u"m")}
     orientation::vars_aux(m.orientation, FT)
     ref_state::vars_aux(m.ref_state,FT)
     turbulence::vars_aux(m.turbulence,FT)
@@ -147,7 +155,7 @@ end
                                  diffusive::Vars, aux::Vars, t::Real)
   ρinv = 1/state.ρ
   u = ρinv * state.ρu
-  
+
   # diffusive
   ρτ = diffusive.ρτ
   ρd_h_tot = diffusive.ρd_h_tot
@@ -188,7 +196,7 @@ function diffusive!(m::AtmosModel, diffusive::Vars, ∇transform::Grad, state::V
 
   ∇h_tot = ∇transform.h_tot
   # turbulent Prandtl number
-  diag_ρν = ρν isa Real ? ρν : diag(ρν) # either a scalar or matrix
+  diag_ρν = ρν isa Number ? ρν : diag(ρν) # either a scalar or matrix
   # Diffusivity ρD_t = ρν/Prandtl_turb
   ρD_t = diag_ρν * inv_Pr_turb
   # diffusive flux of total energy

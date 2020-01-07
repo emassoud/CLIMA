@@ -1,3 +1,4 @@
+
 """
     linearized_air_pressure(ρ, ρe_tot, ρe_pot, ρq_tot=0, ρq_liq=0, ρq_ice=0)
 
@@ -12,8 +13,9 @@ and, optionally,
  - `ρq_liq` liquid water density
  - `ρq_ice` ice density
 """
-function linearized_air_pressure(ρ::FT, ρe_tot::FT, ρe_pot::FT,
-                                 ρq_tot::FT=FT(0), ρq_liq::FT=FT(0), ρq_ice::FT=FT(0)) where {FT<:Real}
+function linearized_air_pressure(ρ::U(FT,:density), ρe_tot::U(FT,:energypv), ρe_pot::U(FT,:energypv),
+                                 ρq_tot::U(FT,:density)=FT(0)*u"kg/m^3", ρq_liq::U(FT,:density)=FT(0)*u"kg/m^3",
+                                 ρq_ice::U(FT,:density)=FT(0)*u"kg/m^3") where {FT<:Real}
   ρ*FT(R_d)*FT(T_0) + FT(R_d)/FT(cv_d)*(ρe_tot - ρe_pot - (ρq_tot - ρq_liq)*FT(e_int_v0) + ρq_ice*(FT(e_int_i0) + FT(e_int_v0)))
 end
 
@@ -35,6 +37,8 @@ vars_diffusive(lm::AtmosLinearModel, FT) = @vars()
 vars_aux(lm::AtmosLinearModel, FT) = vars_aux(lm.atmos,FT)
 vars_integrals(lm::AtmosLinearModel, FT) = @vars()
 
+space_unit(::AtmosLinearModel) = u"m"
+time_unit(::AtmosLinearModel) = u"s"
 
 update_aux!(dg::DGModel, lm::AtmosLinearModel, Q::MPIStateArray, t::Real) = nothing
 integrate_aux!(lm::AtmosLinearModel, integ::Vars, state::Vars, aux::Vars) = nothing
@@ -101,6 +105,6 @@ function flux_nondiffusive!(lm::AtmosAcousticGravityLinearModel, flux::Grad, sta
 end
 function source!(lm::AtmosAcousticGravityLinearModel, source::Vars, state::Vars, aux::Vars, t::Real)
   ∇Φ = ∇gravitational_potential(lm.atmos.orientation, aux)
-  source.ρu -= state.ρ * ∇Φ
+  source.ρu -= state.ρ * ∇Φ * time_unit(lm)
   nothing
 end

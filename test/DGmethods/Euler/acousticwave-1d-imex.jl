@@ -21,7 +21,7 @@ using CLIMA.Atmos: AtmosModel, SphericalOrientation,
                    AtmosAcousticGravityLinearModel
 using CLIMA.VariableTemplates: flattenednames
 
-using MPI, Logging, StaticArrays, LinearAlgebra, Printf, Dates, Test
+using MPI, Logging, StaticArrays, LinearAlgebra, Printf, Dates, Test, Unitful
 const ArrayType = CLIMA.array_type()
 
 const output_vtk = false
@@ -63,7 +63,7 @@ function run(mpicomm, polynomialorder, numelem_horz, numelem_vert,
 
   setup = AcousticWaveSetup{FT}()
 
-  vert_range = grid1d(FT(planet_radius), FT(planet_radius + setup.domain_height), nelem = numelem_vert)
+  vert_range = grid1d(FT(planet_radius), FT(planet_radius) + setup.domain_height, nelem = numelem_vert)
   topology = StackedCubedSphereTopology(mpicomm, numelem_horz, vert_range)
 
   grid = DiscontinuousSpectralElementGrid(topology,
@@ -174,10 +174,10 @@ function run(mpicomm, polynomialorder, numelem_horz, numelem_vert,
 end
 
 Base.@kwdef struct AcousticWaveSetup{FT}
-  domain_height::FT = 10e3
-  T_ref::FT = 300
-  α::FT = 3
-  γ::FT = 100
+  domain_height = FT(10e3) * u"m"
+  T_ref = FT(300) * u"K"
+  α = FT(3)
+  γ = FT(100) * upreferred(u"N/m^3")
   nv::Int = 1
 end
 
@@ -193,7 +193,7 @@ function (setup::AcousticWaveSetup)(state, aux, coords, t)
   β = min(FT(1), setup.α * acos(cos(φ) * cos(λ)))
   f = (1 + cos(FT(π) * β)) / 2
   g = sin(setup.nv * FT(π) * h / setup.domain_height)
-  Δp = setup.γ * f * g
+  Δp = setup.γ * f * g * u"m"
   p = aux.ref_state.p + Δp
 
   state.ρ = air_density(setup.T_ref, p)
@@ -208,7 +208,7 @@ function do_output(mpicomm, vtkdir, vtkstep, dg, Q, model, testname = "acousticw
                       vtkdir, testname, MPI.Comm_rank(mpicomm), vtkstep)
 
   statenames = flattenednames(vars_state(model, eltype(Q)))
-  auxnames = flattenednames(vars_aux(model, eltype(Q))) 
+  auxnames = flattenednames(vars_aux(model, eltype(Q)))
   writevtk(filename, Q, dg, statenames, dg.auxstate, auxnames)
 
   ## Generate the pvtu file for these vtk files
