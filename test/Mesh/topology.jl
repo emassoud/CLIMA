@@ -1,3 +1,7 @@
+using Test
+using CLIMA.Mesh.Topologies
+using Combinatorics, MPI
+
 @testset "cubedshellwarp tests" begin
   import CLIMA.Mesh.Topologies: cubedshellwarp
 
@@ -20,16 +24,65 @@
   end
 
   @testset "check continuity" begin
-    # TODO: we should be systematic here
-    @test all(cubedshellwarp( 3.0,-2.999999999, 1.3) .≈ cubedshellwarp( 2.999999999,-3.0, 1.3))
-    @test all(cubedshellwarp( 3.0, 2.999999999, 1.3) .≈ cubedshellwarp( 2.999999999, 3.0, 1.3))
-    @test all(cubedshellwarp(-3.0,-2.999999999, 1.3) .≈ cubedshellwarp(-2.999999999,-3.0, 1.3))
-    @test all(cubedshellwarp(-3.0, 2.999999999, 1.3) .≈ cubedshellwarp(-2.999999999, 3.0, 1.3))
+    for (u,v) in zip(permutations([3.0, 2.999999999, 1.3]), permutations([2.999999999, 3.0, 1.3]))
+      @test all(cubedshellwarp(u...) .≈ cubedshellwarp(v...))
+    end
+    for (u,v) in zip(permutations([3.0, -2.999999999, 1.3]), permutations([2.999999999, -3.0, 1.3]))
+      @test all(cubedshellwarp(u...) .≈ cubedshellwarp(v...))
+    end
+    for (u,v) in zip(permutations([-3.0, 2.999999999, 1.3]), permutations([-2.999999999, 3.0, 1.3]))
+      @test all(cubedshellwarp(u...) .≈ cubedshellwarp(v...))
+    end
+    for (u,v) in zip(permutations([-3.0, -2.999999999, 1.3]), permutations([-2.999999999, -3.0, 1.3]))
+      @test all(cubedshellwarp(u...) .≈ cubedshellwarp(v...))
+    end
   end
 end
 
+@testset "cubedshellunwarp" begin
+  import CLIMA.Mesh.Topologies: cubedshellwarp, cubedshellunwarp
+  
+  for u in permutations([3.0, 2.999999999, 1.3])
+    @test all(cubedshellunwarp(cubedshellwarp(u...)...) .≈ u)
+  end
+  for u in permutations([3.0, -2.999999999, 1.3])
+    @test all(cubedshellunwarp(cubedshellwarp(u...)...) .≈ u)
+  end
+  for u in permutations([-3.0, 2.999999999, 1.3])
+    @test all(cubedshellunwarp(cubedshellwarp(u...)...) .≈ u)
+  end
+  for u in permutations([-3.0, -2.999999999, 1.3])
+    @test all(cubedshellunwarp(cubedshellwarp(u...)...) .≈ u)
+  end
+end
+
+@testset "grid1d" begin
+  g = grid1d(0,10,nelem=10)
+  @test eltype(g) == Float64
+  @test length(g) == 11
+  @test g[1] == 0
+  @test g[end] == 10
+
+  g = grid1d(10f0,20f0,elemsize=0.1)
+  @test eltype(g) == Float32
+  @test length(g) == 101
+  @test g[1] == 10
+  @test g[end] == 20
+
+  g = grid1d(10f0,20f0,InteriorStretching(0),elemsize=0.1)
+  @test eltype(g) == Float32
+  @test length(g) == 101
+  @test g[1] == 10
+  @test g[end] == 20
+
+  g = grid1d(10f0,20f0,SingleExponentialStretching(2.5f0),elemsize=0.1)
+  @test eltype(g) == Float32
+  @test length(g) == 101
+  @test g[1] == 10
+  @test g[end] == 20
+end
+
 @testset "BrickTopology tests" begin
-  using CLIMA.Mesh.Topologies
 
   let
     comm = MPI.COMM_SELF
@@ -132,7 +185,7 @@ end
   let
     comm = MPI.COMM_SELF
     topology = StackedBrickTopology(comm, (2:5,4:6), periodicity=(false,true),
-                                    boundary=[1 3; 2 4])
+                                    boundary=((1,2),(3,4)))
 
     nelem = 6
 

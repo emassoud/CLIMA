@@ -5,15 +5,16 @@ export NoPrecipitation, Rain
 
 using ..Microphysics
 
-vars_state(    ::PrecipitationModel, T) = @vars()
-vars_gradient( ::PrecipitationModel, T) = @vars()
-vars_diffusive(::PrecipitationModel, T) = @vars()
-vars_aux(      ::PrecipitationModel, T) = @vars()
+vars_state(    ::PrecipitationModel, FT) = @vars()
+vars_gradient( ::PrecipitationModel, FT) = @vars()
+vars_diffusive(::PrecipitationModel, FT) = @vars()
+vars_aux(      ::PrecipitationModel, FT) = @vars()
 
-function update_aux!(::PrecipitationModel, state::Vars, diffusive::Vars, aux::Vars, t::Real);end
-function diffusive!(::PrecipitationModel, diffusive, ∇transform, state, aux, t, ν);end
+function atmos_nodal_update_aux!(::PrecipitationModel, m::AtmosModel, state::Vars, aux::Vars, t::Real);end
+function flux_precipitation!(::PrecipitationModel, flux::Grad, state::Vars, aux::Vars, t::Real);end
+function diffusive!(::PrecipitationModel, diffusive, ∇transform, state, aux, t, ρD_t);end
 function flux_diffusive!(::PrecipitationModel, flux::Grad, state::Vars, diffusive::Vars, aux::Vars, t::Real);end
-function flux_nondiffusive!(::PrecipitationModel, flux::Grad, state::Vars, diffusive::Vars, aux::Vars, t::Real);end
+function flux_nondiffusive!(::PrecipitationModel, flux::Grad, state::Vars, aux::Vars, t::Real);end
 function gradvariables!(::PrecipitationModel, transform::Vars, state::Vars, aux::Vars, t::Real);end
 
 """
@@ -31,28 +32,30 @@ Precipitation model with rain only.
 """
 struct Rain <: PrecipitationModel end
 
-vars_state(    ::Rain, T) = @vars(ρq_rain::T)
-vars_gradient( ::Rain, T) = @vars(q_rain::T)
-vars_diffusive(::Rain, T) = @vars(ρd_q_rain::SVector{3,T})
-vars_aux(      ::Rain, T) = @vars(terminal_velocity::T, src_q_rai_tot::T)
+vars_state(    ::Rain, FT) = @vars(ρq_rain::FT)
+vars_gradient( ::Rain, FT) = @vars(q_rain::FT)
+vars_diffusive(::Rain, FT) = @vars(ρd_q_rain::SVector{3,FT})
+vars_aux(      ::Rain, FT) = @vars(terminal_velocity::FT, src_q_rai_tot::FT)
 
-function update_aux!(m::Rain, state::Vars, diffusive::Vars, aux::Vars, t::Real)
-  DT = eltype(state)
+function atmos_nodal_update_aux!(rain::Rain, atmos::AtmosModel,
+                                         state::Vars, aux::Vars, t::Real)
+  FT = eltype(state)
   q_rain = state.precipitation.ρq_rain/state.ρ
-  if q_rain > DT(0) # TODO - need a way to prevent negative values
+  if q_rain > FT(0) # TODO - need a way to prevent negative values
     aux.precipitation.terminal_velocity = terminal_velocity(q_rain, state.ρ)
   else
-    aux.precipitation.terminal_velocity = DT(0)
+    aux.precipitation.terminal_velocity = FT(0)
   end
 
   ρ = state.ρ
+  ρinv = 1/state.ρ
   p = aux.pressure
   # TODO - ensure positive definite
-  q_tot = max(DT(0), state.ρq_tot/ρ)
-  q_rai = max(DT(0), state.ρq_rain/ρ)
+  q_tot = max(FT(0), state.ρq_tot*ρinv)
+  q_rai = max(FT(0), state.ρq_rain*ρinv)
 
   # current state
-  ts    = thermo_state(m, state, aux)
+  ts    = thermo_state(rain, state, aux)
   # q     = PhasePartition(q_tot, q_liq, q_ice)
   q     = PhasePartition(ts)
   # T     = air_temperature(e_int, q)
@@ -72,25 +75,25 @@ function update_aux!(m::Rain, state::Vars, diffusive::Vars, aux::Vars, t::Real)
   aux.precipitation.src_q_rai_tot = src_q_rai_acnv + src_q_rai_accr + src_q_rai_evap
 end
 
-function gradvariables!(m::Rain, transform::Vars, state::Vars, aux::Vars, t::Real)
+function gradvariables!(rain::Rain, transform::Vars, state::Vars, aux::Vars, t::Real)
   transform.precipitation.q_rain = state.precipitation.ρq_rain/state.ρ
 end
 
-function source_microphysics!(m::Rain, source::Vars, state::Vars, aux::Vars, t::Real)
-  source.precipitation.ρq_rain += aux.precipitation.src_q_rai_tot
-end
-
-function diffusive!(m::Rain, diffusive::Vars, ∇transform::Grad, state::Vars, aux::Vars, t::Real, ρν::Union{Real,AbstractMatrix}, D_T)
+function diffusive!(rain::Rain, diffusive::Vars, ∇transform::Grad, state::Vars, aux::Vars, t::Real, ρν::Union{Real,AbstractMatrix}, D_T)
   # diffusive flux
   diffusive.precipitation.ρd_q_rain = state.ρ .* (-D_T) .* ∇transform.precipitation.q_rain
 end
 
+function flux_precipitation!(rain::Rain, flux::Grad, state::Vars, aux::Vars, t::Real)
+  u = state.ρu / state.ρ
+  flux.precipitation.ρq_rain += state.precipitation.ρq_rain * u
+end
 
-function flux_diffusive!(m::Rain, flux::Grad, state::Vars, diffusive::Vars, aux::Vars, t::Real, D_T)
+function flux_diffusive!(rain::Rain, flux::Grad, state::Vars, diffusive::Vars, aux::Vars, t::Real, D_T)
   flux.precipitation.ρq_rain = diffusive.precipitation.ρd_q_rain
 end
 
-function boundarycondition_moisture!(m::Rain, stateP::Vars, diffP::Vars, auxP::Vars,
+function boundarycondition_precipitation!(rain::Rain, stateP::Vars, diffP::Vars, auxP::Vars,
     nM, stateM::Vars, diffM::Vars, auxM::Vars, bctype::BC, t) where {BC}
   stateP.precipitation.ρq_rain = eltype(stateP)(0)
 end

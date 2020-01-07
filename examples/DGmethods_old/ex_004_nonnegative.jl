@@ -34,17 +34,7 @@ using Dates
 using Printf
 using StaticArrays
 
-@static if haspkg("CuArrays")
-  using CUDAdrv
-  using CUDAnative
-  using CuArrays
-  CuArrays.allowscalar(false)
-  const DeviceArrayType = CuArray
-else
-  const DeviceArrayType = Array
-end
-
-MPI.Initialized() || MPI.Init()
+const DeviceArrayType = CLIMA.array_type()
 
 const finaltime = 5
 
@@ -61,8 +51,8 @@ end
 cosbell(τ, q) = τ ≤ 1 ? ((1 + cospi(τ))/2)^q : zero(τ)
 
 function initialcondition!(Q, x, y, z, _)
-  DFloat = eltype(Q)
-  x0, y0 = DFloat(1//4), DFloat(1//4)
+  FT = eltype(Q)
+  x0, y0 = FT(1//4), FT(1//4)
   τ = 4hypot(x-x0, y-y0)
   @inbounds Q[1] = cosbell(τ, 3)
 end
@@ -107,15 +97,15 @@ function preodefun!(disc, Q, t)
   Filters.apply!(Q, 1, disc.grid, TMARFilter())
 end
 
-function setupDG(mpicomm, dim, Ne, polynomialorder, DFloat=Float64, ArrayType=Array)
-  brickrange = (range(DFloat(0); length=Ne+1, stop=1),
-                range(DFloat(0); length=Ne+1, stop=1),
-                range(DFloat(0); length=Ne+1, stop=1))
+function setupDG(mpicomm, dim, Ne, polynomialorder, FT=Float64, ArrayType=Array)
+  brickrange = (range(FT(0); length=Ne+1, stop=1),
+                range(FT(0); length=Ne+1, stop=1),
+                range(FT(0); length=Ne+1, stop=1))
 
   topology = BrickTopology(mpicomm, brickrange[1:dim])
 
   grid = DiscontinuousSpectralElementGrid(topology; polynomialorder =
-                                          polynomialorder, FloatType = DFloat,
+                                          polynomialorder, FloatType = FT,
                                           DeviceArray = ArrayType,)
 
   spatialdiscretization = DGBalanceLaw(grid = grid, length_state_vector = 1,
@@ -129,20 +119,17 @@ function setupDG(mpicomm, dim, Ne, polynomialorder, DFloat=Float64, ArrayType=Ar
 end
 
 function run()
+  CLIMA.init()
   mpicomm = MPI.COMM_WORLD
   mpi_logger = ConsoleLogger(MPI.Comm_rank(mpicomm) == 0 ? stderr : devnull)
   rank = MPI.Comm_rank(mpicomm)
 
-  @static if haspkg("CUDAnative")
-    device!(rank % length(devices()))
-  end
-
   dim = 2
   Ne = 20
   polynomialorder = 4
-  DFloat = Float64
+  FT = Float64
 
-  spatialdiscretization = setupDG(mpicomm, dim, Ne, polynomialorder, DFloat,
+  spatialdiscretization = setupDG(mpicomm, dim, Ne, polynomialorder, FT,
                                   DeviceArrayType)
   Q = MPIStateArray(spatialdiscretization, initialcondition!)
 
@@ -165,8 +152,8 @@ function run()
     filename = @sprintf("vtk/q_rank%04d_step%04d", rank, vtk_step)
     writevtk(filename, Q, spatialdiscretization, ("q",))
 
-    minQ = MPI.Reduce([minimum(Q.realQ)], MPI.MIN, 0, Q.mpicomm)
-    maxQ = MPI.Reduce([maximum(Q.realQ)], MPI.MAX, 0, Q.mpicomm)
+    minQ = MPI.Reduce([minimum(Q.realdata)], MPI.MIN, 0, Q.mpicomm)
+    maxQ = MPI.Reduce([maximum(Q.realdata)], MPI.MAX, 0, Q.mpicomm)
     sumQ = weightedsum(Q)
 
     with_logger(mpi_logger) do
@@ -193,8 +180,8 @@ function run()
 
   vtkoutput()
 
-  minQ = MPI.Reduce([minimum(Q.realQ)], MPI.MIN, 0, Q.mpicomm)
-  maxQ = MPI.Reduce([maximum(Q.realQ)], MPI.MAX, 0, Q.mpicomm)
+  minQ = MPI.Reduce([minimum(Q.realdata)], MPI.MIN, 0, Q.mpicomm)
+  maxQ = MPI.Reduce([maximum(Q.realdata)], MPI.MAX, 0, Q.mpicomm)
   finalsumQ = weightedsum(Q)
   sumerror = (initialsumQ - finalsumQ) / initialsumQ
   error = euclidean_distance(Q, Qe)

@@ -6,7 +6,7 @@ using DocStringExtensions
 export AbstractTopology, BrickTopology, StackedBrickTopology,
     CubedShellTopology, StackedCubedSphereTopology, isstacked
 
-export grid_stretching_1d
+export grid1d, SingleExponentialStretching, InteriorStretching
 
 """
     AbstractTopology{dim}
@@ -99,7 +99,7 @@ struct BoxElementTopology{dim, T} <: AbstractTopology{dim}
   elemtoordr::Array{Int64, 2}
 
   """
-  Element to bounday number; `elemtobndy[f,e]` is the boundary number of face
+  Element to boundary number; `elemtobndy[f,e]` is the boundary number of face
   `f` of element `e`.  If there is a neighboring element then `elemtobndy[f,e]
   == 0`.
   """
@@ -227,7 +227,7 @@ using MPI
 MPI.Init()
 topology = BrickTopology(MPI.COMM_SELF, (2:5,4:6);
                          periodicity=(false,true),
-                         boundary=[1 3; 2 4])
+                         boundary=((1,2),(3,4)))
 ```
 This returns the mesh structure for
 
@@ -294,9 +294,13 @@ Note that the faces are listed in Cartesian order.
 
 """
 function BrickTopology(mpicomm, elemrange;
-                       boundary=ones(Int,2,length(elemrange)),
+                       boundary=ntuple(j->(1,1), length(elemrange)),
                        periodicity=ntuple(j->false, length(elemrange)),
                        connectivity=:face, ghostsize=1)
+  
+  if boundary isa Matrix
+    boundary = tuple(mapslices(x -> tuple(x...), boundary, dims=1)...)
+  end
 
   # We cannot handle anything else right now...
   @assert connectivity == :face
@@ -352,7 +356,7 @@ using MPI
 MPI.Init()
 topology = StackedBrickTopology(MPI.COMM_SELF, (2:5,4:6);
                                 periodicity=(false,true),
-                                boundary=[1 3; 2 4])
+                                boundary=((1,2),(3,4)))
 ```
 This returns the mesh structure stacked in the \$x2\$-direction for
 
@@ -418,18 +422,21 @@ julia> topology.elemtobndy
 Note that the faces are listed in Cartesian order.
 """
 function StackedBrickTopology(mpicomm, elemrange;
-                       boundary=ones(Int,2,length(elemrange)),
+                       boundary=ntuple(j->(1,1), length(elemrange)),
                        periodicity=ntuple(j->false, length(elemrange)),
                        connectivity=:face, ghostsize=1)
 
-
+  if boundary isa Matrix
+    boundary = tuple(mapslices(x -> tuple(x...), boundary, dims=1)...)
+  end
+  
   dim = length(elemrange)
 
   dim <= 1 && error("Stacked brick topology works for 2D and 3D")
 
   # Build the base topology
   basetopo = BrickTopology(mpicomm, elemrange[1:dim-1];
-                     boundary=boundary[:,1:dim-1],
+                     boundary=boundary[1:dim-1],
                      periodicity=periodicity[1:dim-1],
                      connectivity=connectivity,
                      ghostsize=ghostsize)
@@ -551,10 +558,10 @@ function StackedBrickTopology(mpicomm, elemrange;
     bt = bb = 0
 
     if j == stacksize
-      bt = periodicity[dim] ? bt : boundary[2,dim]
+      bt = periodicity[dim] ? bt : boundary[dim][2]
     end
     if j == 1
-      bb = periodicity[dim] ? bb : boundary[1,dim]
+      bb = periodicity[dim] ? bb : boundary[dim][1]
     end
 
     elemtobndy[2(dim-1)+1, e1] = bb
@@ -815,7 +822,48 @@ function cubedshellwarp(a, b, c, R = max(abs(a), abs(b), abs(c)))
     error("invalid case for cubedshellwarp: $a, $b, $c")
   end
 
-  x1, x2, x3
+  return x1, x2, x3
+end
+
+"""
+    cubedshellunwarp(x1, x2, x3)
+
+The inverse of [`cubedshellwarp`](@ref).
+"""
+function cubedshellunwarp(x1,x2,x3)
+
+  function g(R, X, Y)
+    ξ = atan(X) * 4 / pi
+    η = atan(Y) * 4 / pi
+    R, R*ξ, R*η
+  end 
+
+  R = hypot(x1,x2,x3)
+  fdim = argmax(abs.((x1, x2, x3)))
+
+  if fdim == 1 && x1 < 0
+    # (-R, *, *) : Face I from Ronchi, Iacono, Paolucci (1996)
+    a,b,c = g(-R, x2/x1, x3/x1)
+  elseif fdim == 2 && x2 < 0
+    # ( *,-R, *) : Face II from Ronchi, Iacono, Paolucci (1996)
+    b,a,c = g(-R, x1/x2, x3/x2)
+  elseif fdim == 1 && x1 > 0
+    # ( R, *, *) : Face III from Ronchi, Iacono, Paolucci (1996)
+    a,b,c = g(R, x2/x1, x3/x1)
+  elseif fdim == 2 && x2 > 0
+    # ( *, R, *) : Face IV from Ronchi, Iacono, Paolucci (1996)
+    b,a,c = g(R, x1/x2, x3/x2)
+  elseif fdim == 3 && x3 > 0
+    # ( *, *, R) : Face V from Ronchi, Iacono, Paolucci (1996)
+    c,b,a = g(R, x2/x3, x1/x3)
+  elseif fdim == 3 && x3 < 0
+    # ( *, *,-R) : Face VI from Ronchi, Iacono, Paolucci (1996)
+    c,b,a = g(-R, x2/x3, x1/x3)
+  else
+    error("invalid case for cubedshellunwarp: $a, $b, $c")
+  end
+
+  return a,b,c
 end
 
 """
@@ -1003,48 +1051,56 @@ end
 
 
 """    
-    grid_stretching_1d(coord_min, coord_max, Ne, stretching_type)
+    grid1d(a, b[, stretch::AbstractGridStretching]; elemsize, nelem)
 
-        This function is the extrema of a 1D domain (e.g. the x3 direction of
-        the mesh at hand) and stretches the 1D grid in that direction.
+Discretize the 1D interval [`a`,`b`] into elements.
+Exactly one of the following keyword arguments must be provided:
+- `elemsize`: the average element size, or
+- `nelem`: the number of elements.
 
-        It returns the 1D range `range_stretched` to be then passed to
-        `brickrange = (x1_range, x2_range, x3_range)` in the driver in place of
-        `x1_range`, or `x2_range` or `x3_range`
+The optional `stretch` argument allows stretching, otherwise the element sizes will be uniform.
 
-        The use needs to define the type of stretching `stretching_type` 
-        Now `boundary_layer` and `top_layer` are the only options availabe.
-
-        Add more functions to the function Mesh.Topologies.grid_stretching_1d.
-        
+Returns either a range object or a vector containing the element boundaries.
 """
-
-function grid_stretching_1d(coord_min, coord_max, Ne, stretching_type, attractor_value=0)
-
-    DFloat = eltype(coord_min)
-    
-    #build physical range to be stratched
-    range_stretched = range(DFloat(coord_min), length = Ne + 1, DFloat(coord_max))
-   
-    #build logical space
-    s  = range(DFloat(0), length=Ne[1]+1, DFloat(1))
-
-    stretch_coe = 0.0
-    if (stretching_type == "boundary_stretching")
-        stretch_coe = 2.5
-        range_stretched = (coord_max - coord_min).*(exp.(stretch_coe * s) .- 1.0)./(exp(stretch_coe) - 1.0)
-    elseif (stretching_type == "top_stretching")
-        stretch_coe = 2.5
-        range_stretched = -(coord_max - coord_min).*(exp.(stretch_coe * s) .- 1.0)./(exp(stretch_coe) - 1.0)
-
-    elseif (stretching_type == "interior_stretching")
-        stretch_coe     = 1.2;
-        L               = (coord_max - coord_min);
-        range_stretched = L*s +  stretch_coe*(attractor_value - L*s).*(1.0 - s).*s;          
-    end
-    return range_stretched
-    
+function grid1d(a, b, stretch=nothing; elemsize=nothing, nelem=nothing)
+  xor(nelem === nothing, elemsize === nothing) || error("Either `elemsize` or `nelem` arguments must be provided")
+  if elemsize !== nothing
+    nelem = round(Int,abs(b-a)/elemsize)
+  end
+  grid1d(a, b, stretch, nelem)
 end
-#}}}
+function grid1d(a, b, ::Nothing, nelem)
+  range(a, stop=b, length=nelem+1)
+end
+
+# TODO: document these
+abstract type AbstractGridStretching end
+
+"""
+    SingleExponentialStretching(A)
+
+Apply single-exponential stretching: `A > 0` will increase the density of points at the lower boundary, `A < 0` will increase the density at the upper boundary.
+
+# Reference
+* "Handbook of Grid Generation" J. F. Thompson, B. K. Soni, N. P. Weatherill (Editors) RCR Press 1999, §3.6.1 Single-Exponential Function
+"""
+struct SingleExponentialStretching{T} <: AbstractGridStretching
+  A::T
+end
+function grid1d(a::A, b::B, stretch::SingleExponentialStretching, nelem) where {A,B}
+  F = float(promote_type(A,B))
+  s = range(zero(F), stop=one(F), length=nelem+1)
+  a .+ (b-a) .* expm1.(stretch.A .* s) ./ expm1(stretch.A)
+end
+
+struct InteriorStretching{T} <: AbstractGridStretching
+  attractor::T
+end
+function grid1d(a::A, b::B, stretch::InteriorStretching, nelem) where {A,B}
+  F = float(promote_type(A,B))
+  coe = F(2.5)
+  s = range(zero(F), stop=one(F), length=nelem+1)
+  range(a, stop=b, length=nelem+1) .+ coe .* (stretch.attractor .- (b-a).*s) .* (1 .-s) .* s
+end
 
 end
