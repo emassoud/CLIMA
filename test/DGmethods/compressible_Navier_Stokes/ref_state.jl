@@ -1,5 +1,6 @@
 using MPI
 using Unitful; using CLIMA.UnitAnnotations #FIXME
+import CLIMA.UnitAnnotations: space_unit, time_unit, mass_unit, temperature_unit
 using CLIMA
 using CLIMA.Mesh.Topologies
 using CLIMA.Mesh.Grids
@@ -33,6 +34,16 @@ init_state!(state, aux, coords, t) = nothing
 
 # initial condition
 using CLIMA.Atmos: vars_aux
+
+space_unit(::AtmosModel) = u"m"
+time_unit(::AtmosModel) = u"s"
+mass_unit(::AtmosModel) = u"kg"
+temperature_unit(::AtmosModel) = u"K"
+
+space_unit(::Val{:mt})  = u"m"
+time_unit(::Val{:mt})   = u"s"
+mass_unit(::Val{:mt})   = u"kg"
+temperature_unit(::Val{:mt})   = u"K"
 
 function run1(mpicomm, dim, topl, N, timeend, FT, dt)
 

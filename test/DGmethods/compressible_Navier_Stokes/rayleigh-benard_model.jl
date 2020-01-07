@@ -1,6 +1,7 @@
 # Load Packages
 using MPI
 using Unitful; using CLIMA.UnitAnnotations #FIXME
+import CLIMA.UnitAnnotations: space_unit, time_unit, mass_unit, temperature_unit
 using CLIMA
 using CLIMA.Mesh.Topologies
 using CLIMA.Mesh.Grids
@@ -48,10 +49,21 @@ const T_bot     = 299u"K"
 const T_lapse   = -0.01u"K"
 const T_top     = T_bot + T_lapse*zmax
 const C_smag    = 0.18
+
+space_unit(::AtmosModel) = u"m"
+time_unit(::AtmosModel) = u"s"
+mass_unit(::AtmosModel) = u"kg"
+temperature_unit(::AtmosModel) = u"K"
+
+space_unit(::Val{:mt})  = u"m"
+time_unit(::Val{:mt})   = u"s"
+mass_unit(::Val{:mt})   = u"kg"
+temperature_unit(::Val{:mt})   = u"K"
+
 # ------------- Initial condition function ----------- #
 function initialise_rayleigh_benard!(state::Vars, aux::Vars, (x1,x2,x3), t)
   FT            = eltype(state)
-  mass_flux = U(FT, u"kg/m^2/s")
+  mass_flux     = units(FT,:massflux)
   R_gas         = FT(R_d)
   c_p           = FT(cp_d)
   c_v           = FT(cv_d)

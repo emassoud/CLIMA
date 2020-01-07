@@ -1,7 +1,6 @@
 ### Reference state
 using DocStringExtensions
 using Unitful; using CLIMA.UnitAnnotations #FIXME
-import CLIMA.DGmethods: space_unit, time_unit, mass_unit #FIXME
 export NoReferenceState, HydrostaticState, IsothermalProfile, LinearTemperatureProfile
 
 """
@@ -17,9 +16,6 @@ vars_gradient(m::ReferenceState , FT) = @vars()
 vars_diffusive(m::ReferenceState, FT) = @vars()
 vars_aux(m::ReferenceState, FT) = @vars()
 atmos_init_aux!(::ReferenceState, ::AtmosModel, aux::Vars, geom::LocalGeometry) = nothing
-
-space_unit(::ReferenceState) = NoUnits
-time_unit(::ReferenceState) = NoUnits
 
 """
     NoReferenceState <: ReferenceState
@@ -41,11 +37,11 @@ struct HydrostaticState{P,F} <: ReferenceState
 end
 
 vars_aux(m::HydrostaticState, FT) = @vars begin
-  ρ::U(FT, u"kg/m^3")
-  p::U(FT, u"Pa")
-  T::U(FT, u"K")
-  ρe::U(FT, u"J/m^3")
-  ρq_tot::U(FT, u"kg/m^3")
+  ρ::units(FT,:density)
+  p::units(FT,:pressure)
+  T::units(FT,:temperature)
+  ρe::units(FT,:energypv)
+  ρq_tot::units(FT,:density)
 end
 
 
@@ -93,7 +89,7 @@ $(DocStringExtensions.FIELDS)
 """
 struct IsothermalProfile{F} <: TemperatureProfile
   "temperature (K)"
-  T::U(F,:temp)
+  T::U(F,:temperature)
 end
 
 function (profile::IsothermalProfile)(orientation::Orientation, aux::Vars)
@@ -117,9 +113,9 @@ $(DocStringExtensions.FIELDS)
 """
 struct LinearTemperatureProfile{F} <: TemperatureProfile
   "minimum temperature (K)"
-  T_min::U(F,:temp)
+  T_min::U(F,:temperature)
   "surface temperature (K)"
-  T_surface::U(F,:temp)
+  T_surface::U(F,:temperature)
   "lapse rate (K/m)"
   Γ::U(F,:lincond)
 end

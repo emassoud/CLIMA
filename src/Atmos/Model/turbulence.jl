@@ -2,7 +2,6 @@
 using DocStringExtensions
 using CLIMA.PlanetParameters
 using CLIMA.SubgridScaleParameters
-import CLIMA.DGmethods: space_unit, time_unit, mass_unit, temp_unit
 export ConstantViscosityWithDivergence, SmagorinskyLilly, Vreman, AnisoMinDiss
 
 abstract type TurbulenceClosure end
@@ -10,7 +9,7 @@ abstract type TurbulenceClosure end
 space_unit(m::TurbulenceClosure) = u"m"
 time_unit(m::TurbulenceClosure) = u"s"
 mass_unit(m::TurbulenceClosure) = u"kg"
-temp_unit(m::TurbulenceClosure) = u"K"
+temperature_unit(m::TurbulenceClosure) = u"K"
 
 vars_state(::TurbulenceClosure, FT) = @vars()
 vars_gradient(::TurbulenceClosure, FT) = @vars()
@@ -96,7 +95,7 @@ struct SmagorinskyLilly{FT} <: TurbulenceClosure
 end
 
 vars_aux(::SmagorinskyLilly,T) = @vars(Δ::T)
-vars_gradient(::SmagorinskyLilly,T) = @vars(θ_v::U(T, u"K"))
+vars_gradient(::SmagorinskyLilly,T) = @vars(θ_v::units(T,:temperature))
 
 function atmos_init_aux!(::SmagorinskyLilly, ::AtmosModel, aux::Vars, geom::LocalGeometry)
   aux.turbulence.Δ = lengthscale(geom)
@@ -198,10 +197,8 @@ struct Vreman{FT} <: TurbulenceClosure
   "Smagorinsky Coefficient [dimensionless]"
   C_smag::FT
 end
-vars_aux(::Vreman,FT) = @vars(Δ::U(FT, u"m"))
-vars_gradient(::Vreman,FT) = @vars(θ_v::U(FT, u"K"))
-space_unit(::Vreman) = u"m"
-time_unit(::Vreman) = u"s"
+vars_aux(::Vreman,FT) = @vars(Δ::units(FT,:space))
+vars_gradient(::Vreman,FT) = @vars(θ_v::units(FT,:temperature))
 function atmos_init_aux!(::Vreman, ::AtmosModel, aux::Vars, geom::LocalGeometry)
   aux.turbulence.Δ = lengthscale(geom)
 end
@@ -265,8 +262,8 @@ url = {https://link.aps.org/doi/10.1103/PhysRevFluids.1.041701}
 struct AnisoMinDiss{FT} <: TurbulenceClosure
   C_poincare::FT
 end
-vars_aux(::AnisoMinDiss,T) = @vars(Δ::U(T, u"m"))
-vars_gradient(::AnisoMinDiss,T) = @vars(θ_v::U(T, u"K"))
+vars_aux(::AnisoMinDiss,T) = @vars(Δ::units(T,:space))
+vars_gradient(::AnisoMinDiss,T) = @vars(θ_v::units(T,:temperature))
 function atmos_init_aux!(::AnisoMinDiss, ::AtmosModel, aux::Vars, geom::LocalGeometry)
   aux.turbulence.Δ = lengthscale(geom)
 end

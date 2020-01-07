@@ -3,7 +3,6 @@ using Unitful
 using CLIMA.VariableTemplates
 import CLIMA.DGmethods: BalanceLaw,
                         vars_aux, vars_state, vars_gradient, vars_diffusive,
-                        space_unit, mass_unit, time_unit,
                         flux_nondiffusive!, flux_diffusive!, source!,
                         gradvariables!, diffusive!,
                         init_aux!, init_state!,

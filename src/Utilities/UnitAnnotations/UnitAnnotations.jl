@@ -75,4 +75,7 @@ Get the numeric backing type for a quantity or numeric scalar type.
 get_T(::Type{T}) where {T<:Number} = T
 get_T(::Type{T}) where {T<:AbstractQuantity} = Unitful.get_T(T)
 
+Base.Float64(q::Quantity) = unit(q) * Float64(q.val)
+Base.Float32(q::Quantity) = unit(q) * Float32(q.val)
+
 end # module

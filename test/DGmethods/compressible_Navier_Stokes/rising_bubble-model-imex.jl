@@ -1,6 +1,7 @@
 # Load Packages
 using MPI
 using Unitful; using CLIMA.UnitAnnotations #FIXME
+import CLIMA.UnitAnnotations: space_unit, time_unit, mass_unit, temperature_unit
 using CLIMA
 using CLIMA.Mesh.Topologies
 using CLIMA.Mesh.Grids
@@ -41,6 +42,23 @@ const polynomialorder = 4
 const dim       = 3
 const dt        = 0.1
 const timeend   = 10dt
+
+space_unit(::AtmosModel) = u"m"
+time_unit(::AtmosModel) = u"s"
+mass_unit(::AtmosModel) = u"kg"
+temperature_unit(::AtmosModel) = u"K"
+
+space_unit(::Val{:mt})  = u"m"
+time_unit(::Val{:mt})   = u"s"
+mass_unit(::Val{:mt})   = u"kg"
+temperature_unit(::Val{:mt})   = u"K"
+
+space_unit(::Atmos.AtmosLinearModel) = u"m"
+time_unit(::Atmos.AtmosLinearModel) = u"s"
+
+space_unit(::Atmos.Vreman) = u"m"
+time_unit(::Atmos.Vreman) = u"s"
+
 # ------------- Initial condition function ----------- #
 """
 @article{doi:10.1175/1520-0469(1993)050<1865:BCEWAS>2.0.CO;2,

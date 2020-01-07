@@ -10,6 +10,7 @@ const unit_glossary = Dict(
   :latent      => u"J/kg",
   :shc         => u"J/kg/K",
   :energypv    => u"J/m^3",
+  :energyflux  => u"J/m^2/s",
   :density     => u"kg/m^3",
   :dinvisc     => u"kg/m/s",
   :kinvisc     => u"m^2/s",

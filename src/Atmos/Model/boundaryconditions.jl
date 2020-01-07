@@ -234,9 +234,9 @@ $(DocStringExtensions.FIELDS)
 """
 struct RayleighBenardBC{FT} <: BoundaryCondition
   "Prescribed bottom wall temperature [K]"
-  T_bot::U(FT,:temp)
+  T_bot::U(FT,:temperature)
   "Prescribed top wall temperature [K]"
-  T_top::U(FT,:temp)
+  T_top::U(FT,:temperature)
 end
 # Rayleigh-Benard problem with two fixed walls (prescribed temperatures)
 function atmos_boundary_state!(::Rusanov, bc::RayleighBenardBC, m::AtmosModel,

@@ -2,29 +2,46 @@ using Unitful; using CLIMA.UnitAnnotations #FIXME
 using CLIMA.VariableTemplates
 
 import CLIMA.DGmethods: BalanceLaw, vars_aux, vars_state, vars_gradient,
-                        space_unit, time_unit,
                         vars_diffusive, flux_nondiffusive!, flux_diffusive!,
                         source!, wavespeed, boundary_state!,
                         gradvariables!,
                         diffusive!, init_aux!, init_state!,
                         init_ode_state, LocalGeometry
 
+import CLIMA.UnitAnnotations: space_unit, time_unit
+
 
 struct MMSModel{dim} <: BalanceLaw
 end
 
-sp(T) = U(T, u"m")
-ve(T) = U(T, u"m/s")
-mf(T) = U(T, u"kg/m^2/s")
-ed(T) = U(T, u"J/m^3")
-
 space_unit(m::MMSModel) = u"m"
 time_unit(m::MMSModel) = u"s"
 
-vars_aux(::MMSModel,T) = @vars(x1::sp(T), x2::sp(T), x3::sp(T))
-vars_state(::MMSModel, T) = @vars(ρ::U(T, u"kg/m^3"), ρu::mf(T), ρv::mf(T), ρw::mf(T), ρe::ed(T))
-vars_gradient(::MMSModel, T) = @vars(u::ve(T), v::ve(T), w::ve(T))
-vars_diffusive(::MMSModel, T) = @vars(τ11::ed(T), τ22::ed(T), τ33::ed(T), τ12::ed(T), τ13::ed(T), τ23::ed(T))
+vars_aux(::MMSModel,T) = @vars begin
+  x1::units(T,:space)
+  x2::units(T,:space)
+  x3::units(T,:space)
+end
+vars_state(::MMSModel, T) = @vars begin
+  ρ::units(T,:density)
+  ρu::units(T,:massflux)
+  ρv::units(T,:massflux)
+  ρw::units(T,:massflux)
+  ρe::units(T,:energypv)
+end
+vars_gradient(::MMSModel, T) = @vars begin
+  u::units(T,:velocity)
+  v::units(T,:velocity)
+  w::units(T,:velocity)
+end
+vars_diffusive(::MMSModel, T) = @vars begin
+  τ11::units(T,:energypv)
+  τ22::units(T,:energypv)
+  τ33::units(T,:energypv)
+  τ12::units(T,:energypv)
+  τ13::units(T,:energypv)
+  τ23::units(T,:energypv)
+end
 
 function flux_nondiffusive!(::MMSModel, flux::Grad, state::Vars,
                             auxstate::Vars, t::Real)

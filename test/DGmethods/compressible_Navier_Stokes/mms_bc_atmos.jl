@@ -1,5 +1,6 @@
 using MPI
 using Unitful; using CLIMA.UnitAnnotations #FIXME
+import CLIMA.UnitAnnotations: space_unit, time_unit, mass_unit, temperature_unit
 using CLIMA
 using CLIMA.Mesh.Topologies
 using CLIMA.Mesh.Grids
@@ -30,6 +31,16 @@ include("mms_solution_generated.jl")
 
 using CLIMA.Atmos
 import CLIMA.Atmos: MoistureModel, temperature, pressure, soundspeed, total_specific_enthalpy
+
+space_unit(::AtmosModel) = u"m"
+time_unit(::AtmosModel) = u"s"
+mass_unit(::AtmosModel) = u"kg"
+temperature_unit(::AtmosModel) = u"K"
+
+space_unit(::Val{:mt})  = u"m"
+time_unit(::Val{:mt})   = u"s"
+mass_unit(::Val{:mt})   = u"kg"
+temperature_unit(::Val{:mt})   = u"K"
 
 """
     MMSDryModel
@@ -107,7 +118,7 @@ function run(mpicomm, dim, topl, warpfun, N, timeend, FT, dt)
   if dim == 2
     model = AtmosModel(NoOrientation(),
                        NoReferenceState(),
-                       ConstantViscosityWithDivergence(U(FT, u"kg/m/s")(μ_exact)),
+                       ConstantViscosityWithDivergence(units(FT, u"kg/m/s")(μ_exact)),
                        MMSDryModel(),
                        NoRadiation(),
                        mms2_source!,

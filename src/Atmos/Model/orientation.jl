@@ -1,6 +1,6 @@
 # TODO: add Coriolis vectors
 import ..PlanetParameters: grav, planet_radius
-using ..DGmethods: space_unit, gravp_unit, acc_unit
+import ..UnitAnnotations: space_unit, gravpot_unit, accel_unit
 export Orientation, NoOrientation, FlatOrientation, SphericalOrientation
 
 abstract type Orientation
@@ -8,8 +8,8 @@ end
 
 function vars_aux(m::Orientation, T)
   @vars begin
-    Φ::U(T, u"J/kg") # gravitational potential
-    ∇Φ::SVector{3, U(T, u"J/kg/m")}
+    Φ::units(T,:gravpot) # gravitational potential
+    ∇Φ::SVector{3, units(T, u"J/kg/m")}
   end
 end
 
@@ -58,7 +58,8 @@ struct FlatOrientation <: Orientation
 end
 function atmos_init_aux!(::FlatOrientation, m::AtmosModel, aux::Vars, geom::LocalGeometry)
   aux.orientation.Φ = grav * aux.coord[3]
-  u_grad_pot = gravp_unit(m) / space_unit(m)
-  v = (0, 0, grav / acc_unit(m)).*u_grad_pot
-  aux.orientation.∇Φ = SVector{3, U(eltype(aux), u_grad_pot)}(v)
+  u_grad_pot = gravpot_unit(m) / space_unit(m)
+  v = (0, 0, grav / accel_unit(m)).*u_grad_pot
+  # FIXME: This direct call to a constructor 
+  aux.orientation.∇Φ = SVector{3, units(eltype(aux), u_grad_pot)}(v)
 end
