@@ -40,7 +40,7 @@ Returns the type variable for the choice of numeric backing type `FT` and prefer
 """
 units(FT, u::Unitful.Units) = Quantity{FT, dimension(u), typeof(upreferred(u))}
 
-U(::Type{FT}, u) where {FT<:Real} = Union{FT, units(FT, u)}
+U(FT, u)        = Union{FT, units(FT, u)}
 
 """
     unit_scale(::Type{NamedTuple{S, T}} where {S, T<:Tuple}, factor)

@@ -35,7 +35,7 @@ include("advection_diffusion_model.jl")
 
 # provide default units
 space_unit(::AdvectionDiffusion) = unit_alias(:space)
-time_unit(::AdvectionDiffusion)  = unit_alias(:time) 
+time_unit(::AdvectionDiffusion)  = unit_alias(:time)
 
 # Stored in the aux state are:
 #   `coord` coordinate points (needed for BCs)
