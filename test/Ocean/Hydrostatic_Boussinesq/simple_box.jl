@@ -23,7 +23,8 @@ import CLIMA.HydrostaticBoussinesq: ocean_init_aux!, ocean_init_state!,
                                     OceanSurfaceStressNoForcing,
                                     OceanSurfaceNoStressForcing,
                                     OceanSurfaceStressForcing
-import CLIMA.DGmethods: update_aux!, vars_state, vars_aux
+import CLIMA.DGmethods: update_aux!, update_aux_diffusive!,
+                        vars_state, vars_aux
 using GPUifyLoops
 
 const ArrayType = CLIMA.array_type()
@@ -155,7 +156,7 @@ let
                     Viscous CFL   = %.1f
                     Timestep      = %.1f""",
                  CFL_acoustic, CFL_diffusive, CFL_viscous, dt)
-                 
+
   grid = DiscontinuousSpectralElementGrid(topl,
                                           FloatType = FT,
                                           DeviceArray = ArrayType,
@@ -175,6 +176,7 @@ let
 
   Q = init_ode_state(dg, FT(0); forcecpu=true)
   update_aux!(dg, model, Q, FT(0))
+  update_aux_diffusive!(dg, model, Q, FT(0))
 
   if isdir(vtkpath)
     rm(vtkpath, recursive=true)

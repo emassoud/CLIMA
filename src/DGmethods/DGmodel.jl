@@ -82,6 +82,8 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
     communicate && MPIStateArrays.start_ghost_exchange!(Qvisc)
   end
 
+  update_aux_diffusive!(dg, bl, Q, t)
+
   ###################
   # RHS Computation #
   ###################
@@ -190,6 +192,9 @@ end
 function update_aux!(dg::DGModel, bl::BalanceLaw, Q::MPIStateArray, t::Real)
 end
 
+function update_aux_diffusive!(dg::DGModel, bl::BalanceLaw, Q::MPIStateArray, t::Real)
+end
+
 function reverse_indefinite_stack_integral!(dg::DGModel, m::BalanceLaw,
                                             auxstate::MPIStateArray, t::Real)
 
@@ -222,7 +227,7 @@ function reverse_indefinite_stack_integral!(dg::DGModel, m::BalanceLaw,
 end
 
 function nodal_update_aux!(f!, dg::DGModel, m::BalanceLaw, Q::MPIStateArray,
-                           t::Real)
+                           t::Real; diffusive=false)
   device = typeof(Q.data) <: Array ? CPU() : CUDA()
 
   grid = dg.grid
@@ -238,10 +243,17 @@ function nodal_update_aux!(f!, dg::DGModel, m::BalanceLaw, Q::MPIStateArray,
   Np = dofs_per_element(grid)
 
   ### update aux variables
-  @launch(device, threads=(Np,), blocks=nrealelem,
-          knl_nodal_update_aux!(m, Val(dim), Val(polyorder), f!,
-                          Q.data, dg.auxstate.data, dg.diffstate.data, t,
-                          topology.realelems))
+  if diffusive
+    @launch(device, threads=(Np,), blocks=nrealelem,
+            knl_nodal_update_aux!(m, Val(dim), Val(polyorder), f!,
+                            Q.data, dg.auxstate.data, dg.diffstate.data, t,
+                            topology.realelems))
+  else
+    @launch(device, threads=(Np,), blocks=nrealelem,
+            knl_nodal_update_aux!(m, Val(dim), Val(polyorder), f!,
+                            Q.data, dg.auxstate.data, t,
+                            topology.realelems))
+  end
 end
 
 function copy_stack_field_down!(dg::DGModel, m::BalanceLaw,
