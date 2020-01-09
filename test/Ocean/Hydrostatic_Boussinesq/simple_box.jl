@@ -89,9 +89,9 @@ end
 # PARAM SELECTION #
 ###################
 FT = Float64
-vtkpath = "vtk_two_year_gyre_realistic"
+vtkpath = "vtk_testing_update_aux"
 
-const timeend = 24 * 30 * 86400   # s
+const timeend = 3 * 30 * 86400   # s
 const tout    = 6 * 24 * 60 * 60 # s
 
 const N  = 4
@@ -146,7 +146,7 @@ let
   CFL_acoustic = minΔx / cʰ
   CFL_diffusive = minΔz / (1000 * κᶻ)
   CFL_viscous = minΔz / νᶻ
-  dt = 1//4 * minimum([CFL_acoustic, CFL_diffusive, CFL_viscous])
+  dt = 1//10 * minimum([CFL_acoustic, CFL_diffusive, CFL_viscous])
   nout = ceil(Int64, tout / dt)
   dt = tout / nout
 

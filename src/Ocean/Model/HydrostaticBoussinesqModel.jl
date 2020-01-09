@@ -152,6 +152,7 @@ function update_penalty!(::Rusanov, ::HBModel, n⁻, λ, ΔQ::Vars,
                          Q⁻, Q⁺, A⁻, A⁺, t)
   ΔQ.η = -0
 
+  #=
   θ⁻ = Q⁻.θ
   u⁻ = Q⁻.u
   w⁻ = A⁻.w
@@ -170,8 +171,9 @@ function update_penalty!(::Rusanov, ::HBModel, n⁻, λ, ΔQ::Vars,
   # average velocity
   n̂_v = (n̂_v⁻ + n̂_v⁺) / 2
 
-  # ΔQ.θ = ((n̂_v > 0) ? 1 : -1) * (n̂_v⁻ * θ⁻ - n̂_v⁺ * θ⁺)
+  ΔQ.θ = ((n̂_v > 0) ? 1 : -1) * (n̂_v⁻ * θ⁻ - n̂_v⁺ * θ⁺)
   # ΔQ.θ = abs(n̂_v⁻) * θ⁻ - abs(n̂_v⁺) * θ⁺
+  =# 
 
   return nothing
 end
