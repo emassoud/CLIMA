@@ -51,14 +51,15 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
   communicate = !(isstacked(topology) &&
                   typeof(dg.direction) <: VerticalDirection)
 
-  update_aux!(dg, bl, Q, t)
+  aux_comm = update_aux!(dg, bl, Q, t)
+  @assert typeof(aux_comm) == Bool
 
   ########################
   # Gradient Computation #
   ########################
   if communicate
     MPIStateArrays.start_ghost_exchange!(Q)
-    MPIStateArrays.start_ghost_exchange!(auxstate)
+    aux_comm && MPIStateArrays.start_ghost_exchange!(auxstate)
   end
 
   if nviscstate > 0
@@ -70,7 +71,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
 
     if communicate
       MPIStateArrays.finish_ghost_recv!(Q)
-      MPIStateArrays.finish_ghost_recv!(auxstate)
+      aux_comm && MPIStateArrays.finish_ghost_recv!(auxstate)
     end
 
     @launch(device, threads=Nfp, blocks=nrealelem,
@@ -79,10 +80,18 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
                            vgeo, sgeo, t, vmapM, vmapP, elemtobndy,
                            topology.realelems))
 
-    communicate && MPIStateArrays.start_ghost_exchange!(Qvisc)
+    if communicate
+      MPIStateArrays.start_ghost_exchange!(Qvisc)
+    end
+
+    aux_comm = update_aux_diffusive!(dg, bl, Q, t)
+    @assert typeof(aux_comm) == Bool
+
+    if aux_comm
+      MPIStateArrays.start_ghost_exchange!(auxstate)
+    end
   end
 
-  update_aux_diffusive!(dg, bl, Q, t)
 
   ###################
   # RHS Computation #
@@ -95,9 +104,10 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
   if communicate
     if nviscstate > 0
       MPIStateArrays.finish_ghost_recv!(Qvisc)
+      aux_comm && MPIStateArrays.finish_ghost_recv!(auxstate)
     else
       MPIStateArrays.finish_ghost_recv!(Q)
-      MPIStateArrays.finish_ghost_recv!(auxstate)
+      aux_comm && MPIStateArrays.finish_ghost_recv!(auxstate)
     end
   end
 
@@ -190,9 +200,11 @@ end
 
 # fallback
 function update_aux!(dg::DGModel, bl::BalanceLaw, Q::MPIStateArray, t::Real)
+  false
 end
 
 function update_aux_diffusive!(dg::DGModel, bl::BalanceLaw, Q::MPIStateArray, t::Real)
+  false
 end
 
 function reverse_indefinite_stack_integral!(dg::DGModel, m::BalanceLaw,
