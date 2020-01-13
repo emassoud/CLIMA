@@ -1,14 +1,15 @@
 module NumericalFluxes
 
 export Rusanov, CentralGradPenalty, CentralNumericalFluxDiffusive,
-       CentralNumericalFluxNonDiffusive
+       CentralNumericalFluxNonDiffusive,
+       CentralHyperGradPenalty
 
 using StaticArrays
 using GPUifyLoops: @unroll
 import ..DGmethods: BalanceLaw, Grad, Vars, vars_state, vars_diffusive,
                     vars_aux, vars_gradient, boundary_state!, wavespeed,
                     flux_nondiffusive!, flux_diffusive!, diffusive!, num_state,
-                    num_gradient, gradvariables!
+                    num_gradient, gradvariables!, num_hypergradient
 
 """
     GradNumericalPenalty
@@ -70,6 +71,45 @@ function diffusive_boundary_penalty!(nf::CentralGradPenalty, bl::BalanceLaw,
   diffusive_penalty!(nf, bl, VF, nM, diffM, QM, aM, diffP, QP, aP, t)
 end
 
+"""
+    CentralHyperGradPenalty <: GradNumericalPenalty
+
+"""
+struct CentralHyperGradPenalty <: GradNumericalPenalty end
+
+function hypergrad_penalty!(::CentralHyperGradPenalty, bl::BalanceLaw,
+                            VF, nM, diffM, QM, aM, diffP, QP, aP, t)
+  FT = eltype(QM)
+
+  @inbounds begin
+    ndim = 3
+    nhypergradstate = num_hypergradient(bl,FT)
+    n_Δdiff = similar(VF, Size(ndim, nhypergradstate))
+    @unroll for j = 1:nhypergradstate
+      @unroll for i = 1:ndim
+        VF[i, j] = nM[i] * (diffP[j] - diffM[j]) / 2
+      end
+    end
+  end
+end
+
+function hypergrad_boundary_penalty!(nf::CentralHyperGradPenalty, bl::BalanceLaw,
+                                     VF, nM, diffM, QM, aM, diffP, QP, aP,
+                                     bctype, t, Q1, aux1)
+  FT = eltype(diffP)
+  boundary_state!(nf, bl, Vars{vars_state(bl,FT)}(QP),
+                  Vars{vars_aux(bl,FT)}(aP), nM,
+                  Vars{vars_state(bl,FT)}(QM),
+                  Vars{vars_aux(bl,FT)}(aM), bctype, t,
+                  Vars{vars_state(bl,FT)}(Q1),
+                  Vars{vars_aux(bl,FT)}(aux1))
+
+  gradvariables!(bl, Vars{vars_gradient(bl,FT)}(diffP),
+                 Vars{vars_state(bl,FT)}(QP),
+                 Vars{vars_aux(bl,FT)}(aP), t)
+
+  hypergrad_penalty!(nf, bl, VF, nM, diffM, QM, aM, diffP, QP, aP, t)
+end
 
 """
     NumericalFluxNonDiffusive

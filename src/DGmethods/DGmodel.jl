@@ -1,20 +1,29 @@
-struct DGModel{BL,G,NFND,NFD,GNF,AS,DS,D,MD}
+using .NumericalFluxes: CentralHyperGradPenalty
+
+struct DGModel{BL,G,NFND,NFD,GNF,HGNF,AS,DS,D,MD}
   balancelaw::BL
   grid::G
   numfluxnondiff::NFND
   numfluxdiff::NFD
   gradnumflux::GNF
+  hypergradnumflux::HGNF
   auxstate::AS
   diffstate::DS
+  hyperdiffstate::DS
   direction::D
   modeldata::MD
 end
 function DGModel(balancelaw, grid, numfluxnondiff, numfluxdiff, gradnumflux;
                  auxstate=create_auxstate(balancelaw, grid),
                  diffstate=create_diffstate(balancelaw, grid),
+                 hyperdiffstate=create_hyperdiffstate(balancelaw, grid),
                  direction=EveryDirection(), modeldata=nothing)
-  DGModel(balancelaw, grid, numfluxnondiff, numfluxdiff, gradnumflux, auxstate,
-          diffstate, direction, modeldata)
+  # FIXME
+  hypergradnumflux = CentralHyperGradPenalty()
+  DGModel(balancelaw, grid,
+          numfluxnondiff, numfluxdiff, gradnumflux,
+          hypergradnumflux,
+          auxstate, diffstate, hyperdiffstate, direction, modeldata)
 end
 
 function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
@@ -32,6 +41,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
   nrealelem = length(topology.realelems)
 
   Qvisc = dg.diffstate
+  Qhypervisc = dg.hyperdiffstate
   auxstate = dg.auxstate
 
   FT = eltype(Q)
@@ -65,7 +75,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
 
     @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
             volumeviscterms!(bl, Val(dim), Val(polyorder), dg.direction, Q.data,
-                             Qvisc.data, auxstate.data, vgeo, t, Dmat,
+                             Qvisc.data, Qhypervisc.data, auxstate.data, vgeo, t, Dmat,
                              topology.realelems))
 
     if communicate
@@ -75,7 +85,8 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
 
     @launch(device, threads=Nfp, blocks=nrealelem,
             faceviscterms!(bl, Val(dim), Val(polyorder), dg.direction,
-                           dg.gradnumflux, Q.data, Qvisc.data, auxstate.data,
+                           dg.gradnumflux, dg.hypergradnumflux,
+                           Q.data, Qvisc.data, Qhypervisc.data, auxstate.data,
                            vgeo, sgeo, t, vmapM, vmapP, elemtobndy,
                            topology.realelems))
 
