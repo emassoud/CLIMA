@@ -8,9 +8,9 @@ using GPUifyLoops
 include("LinearSolvers_kernels.jl")
 
 # just for testing LinearSolvers
-LinearAlgebra.norm(A::MVector, p::Real, weighted::Bool) = norm(A, p)
-LinearAlgebra.norm(A::MVector, weighted::Bool) = norm(A, 2, weighted)
-LinearAlgebra.dot(A::MVector, B::MVector, weighted) = dot(A, B)
+LinearAlgebra.norm(A::AbstractVector, p::Real, weighted::Bool) = norm(A, p)
+LinearAlgebra.norm(A::AbstractVector, weighted::Bool) = norm(A, 2, weighted)
+LinearAlgebra.dot(A::AbstractVector, B::AbstractVector, weighted) = dot(A, B)
 
 export linearsolve!, settolerance!, prefactorize
 export AbstractLinearSolver, AbstractIterativeLinearSolver
@@ -55,7 +55,7 @@ initialize!(linearoperator!, Q, Qrhs, solver::AbstractIterativeLinearSolver,
 """
     prefactorize(linop!, linearsolver, args...)
 
-Prefactorize the in-place linear operator `linop!` for use with `linearsolver`. 
+Prefactorize the in-place linear operator `linop!` for use with `linearsolver`.
 """
 prefactorize(linop!, linearsolver::AbstractIterativeLinearSolver, args...) =
   linop!
@@ -82,7 +82,7 @@ function linearsolve!(linearoperator!, solver::AbstractIterativeLinearSolver, Q,
   converged && return iters
 
   while !converged
-    converged, inner_iters, residual_norm = 
+    converged, inner_iters, residual_norm =
       doiteration!(linearoperator!, Q, Qrhs, solver, threshold, args...)
 
     iters += inner_iters
@@ -90,10 +90,10 @@ function linearsolve!(linearoperator!, solver::AbstractIterativeLinearSolver, Q,
     if !isfinite(residual_norm)
       error("norm of residual is not finite after $iters iterations of `doiteration!`")
     end
-    
+
     achieved_tolerance = residual_norm / threshold * solver.tolerance[1]
   end
-  
+
   iters
 end
 

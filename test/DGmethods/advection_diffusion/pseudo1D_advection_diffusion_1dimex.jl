@@ -7,8 +7,10 @@ using CLIMA.Mesh.Grids
 using CLIMA.DGmethods
 using CLIMA.DGmethods.NumericalFluxes
 using CLIMA.MPIStateArrays
+import CLIMA.MPIStateArrays: realview
 using CLIMA.LinearSolvers
 using CLIMA.GeneralizedMinimalResidualSolver
+using CLIMA.ColumnwiseGMRESSolver
 using CLIMA.ColumnwiseLUSolver: SingleColumnLU, ManyColumnLU, banded_matrix,
                                 banded_matrix_vector_product!
 using CLIMA.AdditiveRungeKuttaMethod
@@ -79,7 +81,6 @@ function do_output(mpicomm, vtkdir, vtkstep, dg, Q, Qe, model, testname)
   end
 end
 
-
 function run(mpicomm, ArrayType, dim, topl, N, timeend, FT, dt,
              n, α, β, μ, δ, vtkdir, outputtime, linearsolvertype)
 
@@ -107,7 +108,7 @@ function run(mpicomm, ArrayType, dim, topl, N, timeend, FT, dt,
 
   Q = init_ode_state(dg, FT(0))
 
-  ode_solver = ARK548L2SA2KennedyCarpenter(dg, vdg, linearsolvertype(), Q;
+  ode_solver = ARK548L2SA2KennedyCarpenter(dg, vdg, linearsolvertype(Q), Q;
                                            dt = dt, t0 = 0,
                                            split_nonlinear_linear=false)
 
@@ -213,7 +214,8 @@ let
     for FT in (Float64, Float32)
       result = zeros(FT, numlevels)
       for dim = 2:3
-        for linearsolvertype in (SingleColumnLU, ManyColumnLU)
+        # for linearsolvertype in (SingleColumnLU, ManyColumnLU, StackGMRES)
+        for linearsolvertype in (StackGMRES,) #FIXME
           d = dim == 2 ? FT[1, 10, 0] : FT[1, 1, 10]
           n = SVector{3, FT}(d ./ norm(d))
 
@@ -264,4 +266,3 @@ let
 end
 
 nothing
-
