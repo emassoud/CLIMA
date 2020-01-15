@@ -8,6 +8,7 @@ using StaticArrays, Unitful; using CLIMA.UnitAnnotations #FIXME
 import Unitful: AbstractQuantity
 
 include("aliases.jl")
+include("uaware.jl")
 
 """
 Quantity or other scalar type with numeric backing type FT.
