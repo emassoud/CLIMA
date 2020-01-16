@@ -214,8 +214,7 @@ let
     for FT in (Float64, Float32)
       result = zeros(FT, numlevels)
       for dim = 2:3
-        # for linearsolvertype in (SingleColumnLU, ManyColumnLU, StackGMRES)
-        for linearsolvertype in (StackGMRES,) #FIXME
+        for linearsolvertype in (StackGMRES{10, 16}, SingleColumnLU, ManyColumnLU)
           d = dim == 2 ? FT[1, 10, 0] : FT[1, 1, 10]
           n = SVector{3, FT}(d ./ norm(d))
 
