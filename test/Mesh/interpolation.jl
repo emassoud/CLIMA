@@ -88,7 +88,7 @@ function run_brick_interpolation_test()
                grid,
                Rusanov(),
                CentralNumericalFluxDiffusive(),
-               CentralGradPenalty())
+               CentralNumericalFluxGradient())
 
     Q = init_ode_state(dg, FT(0))
     #------------------------------
@@ -204,7 +204,7 @@ function run_cubed_sphere_interpolation_test()
                        setup)
 
     dg = DGModel(model, grid, Rusanov(),
-                 CentralNumericalFluxDiffusive(), CentralGradPenalty())
+                 CentralNumericalFluxDiffusive(), CentralNumericalFluxGradient())
 
     Q = init_ode_state(dg, FT(0))
     #------------------------------
