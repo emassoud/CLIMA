@@ -1,6 +1,8 @@
-using .NumericalFluxes: CentralHyperGradPenalty
+using .NumericalFluxes: CentralHyperGradPenalty, CentralHyperGradFlux, CentralHyperDivPenalty
+using LinearAlgebra
+using ..Mesh.Grids
 
-struct DGModel{BL,G,NFND,NFD,GNF,HGNF,AS,DS,D,MD}
+struct DGModel{BL,G,NFND,NFD,GNF,HGNF,AS,DS,HDS,D,MD}
   balancelaw::BL
   grid::G
   numfluxnondiff::NFND
@@ -9,7 +11,7 @@ struct DGModel{BL,G,NFND,NFD,GNF,HGNF,AS,DS,D,MD}
   hypergradnumflux::HGNF
   auxstate::AS
   diffstate::DS
-  hyperdiffstate::DS
+  hyperdiffstate::HDS
   direction::D
   modeldata::MD
 end
@@ -41,7 +43,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
   nrealelem = length(topology.realelems)
 
   Qvisc = dg.diffstate
-  Qhypervisc = dg.hyperdiffstate
+  Qhypervisc_grad, Qhypervisc_div = dg.hyperdiffstate
   auxstate = dg.auxstate
 
   FT = eltype(Q)
@@ -75,7 +77,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
 
     @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
             volumeviscterms!(bl, Val(dim), Val(polyorder), dg.direction, Q.data,
-                             Qvisc.data, Qhypervisc.data, auxstate.data, vgeo, t, Dmat,
+                             Qvisc.data, Qhypervisc_grad.data, auxstate.data, vgeo, t, Dmat,
                              topology.realelems))
 
     if communicate
@@ -86,19 +88,83 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
     @launch(device, threads=Nfp, blocks=nrealelem,
             faceviscterms!(bl, Val(dim), Val(polyorder), dg.direction,
                            dg.gradnumflux, dg.hypergradnumflux,
-                           Q.data, Qvisc.data, Qhypervisc.data, auxstate.data,
+                           Q.data, Qvisc.data, Qhypervisc_grad.data, auxstate.data,
                            vgeo, sgeo, t, vmapM, vmapP, elemtobndy,
                            topology.realelems))
 
+    #println("First grad")
+    #@show maximum(abs.(Qhypervisc_grad[:, 2, :]))
+    #@show maximum(abs.(Qhypervisc_grad[:, 3, :]))
+
     communicate && MPIStateArrays.start_ghost_exchange!(Qvisc)
   end
+  
+
+  #@show Qhypervisc_div[:]
+  if nviscstate > 0
+
+    #########################
+    # Laplacian Computation #
+    #########################
+    
+    @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
+            volumehyperviscterms_a!(bl, Val(dim), Val(polyorder), dg.direction,
+                                    Qhypervisc_grad.data, Qhypervisc_div.data, vgeo, Dmat,
+                                    topology.realelems))
+    
+    @launch(device, threads=Nfp, blocks=nrealelem,
+            facehyperviscterms_a!(bl, Val(dim), Val(polyorder), dg.direction,
+                                  #dg.hypergradnumflux,
+                                  CentralHyperDivPenalty(),
+                                  Qhypervisc_grad.data, Qhypervisc_div.data,
+                                  vgeo, sgeo, vmapM, vmapP, elemtobndy,
+                                  topology.realelems))
+
+    #####################################
+    # Gradient of Laplacian Computation #
+    #####################################
+   
+    #println("before hypervisc volume")
+    #@show maximum(abs.(Qhypervisc_grad[:, 2, :]))
+    #@show maximum(abs.(Qhypervisc_grad[:, 3, :]))
+    
+    @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
+            volumehyperviscterms_b!(bl, Val(dim), Val(polyorder), dg.direction,
+                                    Qhypervisc_grad.data, Qhypervisc_div.data, vgeo, Dmat,
+                                    topology.realelems))
+    
+    println("after hypervisc volume")
+    @show maximum(abs.(Qhypervisc_grad[:, 2, :]))
+    @show maximum(abs.(Qhypervisc_grad[:, 3, :]))
+    @launch(device, threads=Nfp, blocks=nrealelem,
+            facehyperviscterms_b!(bl, Val(dim), Val(polyorder), dg.direction,
+                                  #dg.hypergradnumflux,
+                                  #CentralHyperGradPenalty(),
+                                  CentralHyperGradFlux(),
+                                  Qhypervisc_grad.data, Qhypervisc_div.data,
+                                  vgeo, sgeo, vmapM, vmapP, elemtobndy,
+                                  topology.realelems))
+
+    println("after hypervisc face")
+    x1 = vgeo[:, Grids._x1, :]
+    @show maximum(abs.(Qhypervisc_grad[:, 1, :] + cos.(x1) .* exp(-t)))
+    @show maximum(abs.(Qhypervisc_grad[:, 2, :]))
+    @show maximum(abs.(Qhypervisc_grad[:, 3, :]))
+  end
+
+  #Qhypervisc_div .*= -1 / 3
+  #if t > 0.99
+  # @show euclidean_distance(Qhypervisc_div, Q)
+  #end
+  #@show Qhypervisc_div[:]
+  
 
   ###################
   # RHS Computation #
   ###################
   @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
           volumerhs!(bl, Val(dim), Val(polyorder), dg.direction, dQdt.data,
-                     Q.data, Qvisc.data, auxstate.data, vgeo, t,
+                     Q.data, Qvisc.data, Qhypervisc_grad.data, auxstate.data, vgeo, t,
                      lgl_weights_vec, Dmat, topology.realelems, increment))
 
   if communicate
@@ -114,7 +180,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
           facerhs!(bl, Val(dim), Val(polyorder), dg.direction,
                    dg.numfluxnondiff,
                    dg.numfluxdiff,
-                   dQdt.data, Q.data, Qvisc.data,
+                   dQdt.data, Q.data, Qvisc.data, Qhypervisc_grad.data,
                    auxstate.data, vgeo, sgeo, t, vmapM, vmapP, elemtobndy,
                    topology.realelems))
 

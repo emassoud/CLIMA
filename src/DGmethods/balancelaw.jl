@@ -156,11 +156,20 @@ function create_hyperdiffstate(bl, grid, commtag=333)
   weights = view(h_vgeo, :, grid.Mid, :)
   weights = reshape(weights, size(weights, 1), 1, size(weights, 2))
 
+  nhypergradstate = num_hypergradient(bl,FT)
   # TODO: Clean up this MPIStateArray interface...
+  Qhypervisc_grad = MPIStateArray{FT}(topology.mpicomm, DA, Np, 3nhypergradstate,
+                                      length(topology.elems),
+                                      realelems=topology.realelems,
+                                      ghostelems=topology.ghostelems,
+                                      vmaprecv=grid.vmaprecv,
+                                      vmapsend=grid.vmapsend,
+                                      nabrtorank=topology.nabrtorank,
+                                      nabrtovmaprecv=grid.nabrtovmaprecv,
+                                      nabrtovmapsend=grid.nabrtovmapsend,
+                                      weights=weights, commtag=commtag)
 
-  ndims = 3
-  nhyperdiff = max(num_hyperdiffusive(bl,FT), ndims * num_hypergradient(bl,FT) + 1)
-  hyperdiffstate = MPIStateArray{FT}(topology.mpicomm, DA, Np, nhyperdiff,
+  Qhypervisc_div = MPIStateArray{FT}(topology.mpicomm, DA, Np, nhypergradstate,
                                      length(topology.elems),
                                      realelems=topology.realelems,
                                      ghostelems=topology.ghostelems,
@@ -169,7 +178,6 @@ function create_hyperdiffstate(bl, grid, commtag=333)
                                      nabrtorank=topology.nabrtorank,
                                      nabrtovmaprecv=grid.nabrtovmaprecv,
                                      nabrtovmapsend=grid.nabrtovmapsend,
-                                     weights=weights, commtag=commtag)
-
-  return hyperdiffstate
+                                     weights=weights, commtag=commtag + 111)
+  return Qhypervisc_grad, Qhypervisc_div
 end
