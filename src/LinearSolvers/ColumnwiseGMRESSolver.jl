@@ -55,8 +55,13 @@ function LS.initialize!(linearoperator!, Q, Qrhs,
     linearoperator!(krylov_basis[1], Q, args...)
     krylov_basis[1] .*= -1
     krylov_basis[1] .+= Qrhs
+    @show norm(krylov_basis[1])
 
     threshold = solver.tolerance[1] * norm(Qrhs, weighted) # Keep a global threshold for now
+    FT = eltype(Q)
+    threshold = threshold == FT(0) ? eps(FT) : threshold
+    @show threshold
+
     converged = true
     for es in 1:nhorzelem
       stack = (es-1) * ss + 1 : es * ss
@@ -69,7 +74,7 @@ function LS.initialize!(linearoperator!, Q, Qrhs,
         continue
       end
 
-      fill!(g0, 0)
+      fill!(g0, FT(0))
       g0[1] = residual_norm
       krylov_basis[1][stack] ./= residual_norm
     end
@@ -139,6 +144,7 @@ function LS.doiteration!(linearoperator!, Q, Qrhs, solver::StackGMRES{M, nhorzel
     H = solver.H[es]
     g0 = solver.g0[es]
     j = stop_iter[es] == -1 ? M : stop_iter[es]
+    @show j
 
     # solve the triangular system
     y = SVector{j}(@views UpperTriangular(H[1:j, 1:j]) \ g0[1:j])
@@ -154,6 +160,7 @@ function LS.doiteration!(linearoperator!, Q, Qrhs, solver::StackGMRES{M, nhorzel
 
   # if not converged restart
   converged || LS.initialize!(linearoperator!, Q, Qrhs, solver, args...)
+  @show maximum(stop_iter)
   fill!(stop_iter, -1)
 
   (converged, M, residual_norm) #FIXME should return a more representative number of iterations

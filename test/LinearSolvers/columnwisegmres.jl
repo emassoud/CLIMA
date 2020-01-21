@@ -8,11 +8,15 @@ using Logging
 using LinearAlgebra
 using Random
 using StaticArrays
+using SparseArrays
 using CLIMA.DGmethods: DGModel, Vars, vars_state, num_state, init_ode_state
 using CLIMA.LinearSolvers
 using CLIMA.ColumnwiseGMRESSolver
+using CLIMA.GeneralizedMinimalResidualSolver
 using CLIMA.DGmethods.NumericalFluxes: Rusanov, CentralNumericalFluxDiffusive,
                                        CentralGradPenalty
+using CLIMA.MPIStateArrays
+import CLIMA.MPIStateArrays: MPIStateArray
 using CLIMA.MPIStateArrays: MPIStateArray, euclidean_distance
 
 using Test
@@ -20,6 +24,24 @@ using Test
 const ArrayType = CLIMA.array_type()
 
 include("../DGmethods/advection_diffusion/advection_diffusion_model.jl")
+
+# Mock constructor of MPIArrays for testing on single node for right-hand-sides
+function MPIStateArrays.MPIStateArray(b::AbstractVector{FT}) where {FT<:AbstractFloat}
+  data = reshape(b, length(b), 1, 1)
+  realdata = view(data, ntuple(i -> Colon(), ndims(data))...)
+
+  reqs = Vector{MPI.Request}(undef, 0)
+  buffer = Matrix{FT}(undef, 0, 0)
+  nabtorank = Vector{Int64}(undef, 0)
+  nabrtovmap = Vector{UnitRange{Int64}}(undef, 0)
+  weights = similar(data)
+
+  MPIStateArray{FT, typeof(data), typeof(nabrtovmap), typeof(realdata), Array{FT,2}}(
+    MPI.COMM_WORLD, data, realdata, 1:1, 1:0, nabrtovmap, nabrtovmap, reqs,
+    reqs, buffer, buffer, nabtorank, nabrtovmap, nabrtovmap, buffer, buffer,
+    weights, 888
+  )
+end
 
 struct Pseudo1D{n, α, β, μ, δ} <: AdvectionDiffusionProblem end
 
@@ -118,54 +140,86 @@ let
                       direction=VerticalDirection(),
                       auxstate=dg.auxstate)
 
-        # A_banded = banded_matrix(vdg,
-        #                           MPIStateArray(dg),
-        #                           MPIStateArray(dg);
-        #                           single_column=single_column)
+        # α = FT(1 // 10)
+        # function op!(LQ, Q)
+        #   vdg(LQ, Q, nothing, 0; increment=false)
+        #   @. LQ = Q + α * LQ
+        # end
 
-        # Q = init_ode_state(dg, FT(0))
-        # dQ1 = MPIStateArray(dg)
-        # dQ2 = MPIStateArray(dg)
-        #
-        # vdg(dQ1, Q, nothing, 0; increment=false)
-        # Q.data .= dQ1.data
-        #
-        # vdg(dQ1, Q, nothing, 0; increment=false)
-        # banded_matrix_vector_product!(vdg, A_banded, dQ2, Q)
-        # @test all(isapprox.(Array(dQ1.realdata), Array(dQ2.realdata), atol=100*eps(FT)))
-
-        α = FT(1 // 10)
-        function op!(LQ, Q)
-          vdg(LQ, Q, nothing, 0; increment=false)
-          @. LQ = Q + α * LQ
+        local S
+        while true
+          println("Generating the matrix")
+          S = sprandn(FT, 10, 10, 0.5)
+          det(S) == 0 || break
         end
 
-        # A_banded = banded_matrix(op!, vdg,
-        #                           MPIStateArray(dg),
-        #                           MPIStateArray(dg);
-        #                           single_column=single_column)
+        function op!(LQ, Q)
+          v = reshape(Q, length(Q))
+          reshape(LQ, length(LQ)) .= S * v
+        end
 
+        Qrhs = MPIStateArray(randn(10) / 10)
+        Q1 = MPIStateArray(zeros(10))
+        solver = GeneralizedMinimalResidual(5, Q1, 1e-8)
 
-        Q1 = init_ode_state(dg, FT(0))
-        Q2 = init_ode_state(dg, FT(0))
-        dQ = MPIStateArray(vdg)
+        println("Starting linear solve")
+        linearsolve!(op!, solver, Q1, Qrhs)
+        Q2 = S \ Array(Qrhs)
+        @test all(isapprox.(Array(Q1.realdata), Q2, atol=100*eps(FT)))
 
-        solver = StackGMRES{5, Neh}(Q1)
+        # Q1 = init_ode_state(dg, FT(0))
+        # Q2 = init_ode_state(dg, FT(0))
+        # dQ1 = MPIStateArray(vdg)
+        #
+        # solver = StackGMRES{10, Neh}(Q1)
+        # solver = GeneralizedMinimalResidual(50, Q1, 1e-8)
+        # N = length(Q1.data)
+        # reshape(Q1.data, N) .= randn(FT, N) / N
+        # Q2.data .= Q1.data
+        #
+        # # Test that linearsolve! inverts op!
+        # op!(dQ1, Q1)
+        # Q1.data .= dQ1.data
+        # op!(dQ1, Q1)
+        #
+        # @show norm(dQ1.data)
+        # fill!(Q1, FT(0))
+        # linearsolve!(op!, solver, Q1, dQ1)
+        # @test all(isapprox.(Array(Q1.data), Array(Q2.data), atol=100*eps(FT)))
 
-        # Apply the operator just once to the newly generated vector
-        op!(dQ, Q1)
-        Q1.data .= dQ.data
-        Q2.data .= dQ.data
+        # Test for linearity
+        # First test A(τv+ωu) - ωA(u) ≈ τA(v)
+        # τ, ω = randn(FT, 2)
+        # dQ2 = MPIStateArray(vdg)
+        # op!(dQ2, Q1)
+        # rhs = τ * dQ2
+        #
+        # dQ3 = MPIStateArray(vdg)
+        # arg = init_ode_state(dg, FT(0))
+        # @. arg.data = τ * Q1.data + ω * Q2.data
+        # op!(dQ3, arg)
+        # dQ4 = MPIStateArray(vdg)
+        # op!(dQ4, Q2)
+        # @. dQ4.data *= ω
+        # @. dQ3.data -= dQ4
+        # @test all(isapprox.(Array(dQ3.data), Array(rhs.data), rtol=100*eps(FT)))
+        #
+        # # Now test that v ≈ A\(lhs) * inv(τ)
+        # Q3 = init_ode_state(dg, FT(0))
+        # linearsolve!(op!, solver, Q3, dQ3)
+        # @. Q3.data /= τ
+        # @test all(isapprox.(Array(Q3.data), Array(Q1.data), rtol=100*eps(FT)))
 
-        # Test that linearsolve! inverts op!
-        # i.e. Q1 should be invariant
-        op!(dQ, Q1)
-        linearsolve!(op!, solver, Q1, dQ)
-        @test all(isapprox.(Array(Q1.realdata), Array(Q2.realdata), atol=100*eps(FT)))
-
-        # banded_matrix_vector_product!(vdg, A_banded, dQ2, Q)
-        # @test all(isapprox.(Array(dQ1.realdata), Array(dQ2.realdata), atol=100*eps(FT)))
-        # end
+        # let Aw = A(v - u)
+        # Test v - u ≈ w
+        reshape(Q2.data, N) .= randn(FT, N) / N
+        dQ2 = MPIStateArray(vdg)
+        Q3 = Q1 - Q2
+        op!(dQ2, Q3)
+        Q4 = MPIStateArray(vdg)
+        linearsolve!(op!, solver, Q4, dQ2)
+        @show norm(Array(Q4.data) - Array(Q3.data), Inf)
+        @test all(isapprox.(Array(Q4.data), Array(Q3.data), rtol=1000*eps(FT)))
       end
     end
   end
