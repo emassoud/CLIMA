@@ -5,7 +5,8 @@ import CLIMA.DGmethods: BalanceLaw,
                         flux_nondiffusive!, flux_diffusive!, source!,
                         gradvariables!, diffusive!,
                         init_aux!, init_state!,
-                        boundary_state!, wavespeed, LocalGeometry
+                        boundary_state!, wavespeed, LocalGeometry,
+                        vars_hypergradient, vars_hyperdiffusive
 using CLIMA.DGmethods.NumericalFluxes: NumericalFluxNonDiffusive,
                                        NumericalFluxDiffusive,
                                        GradNumericalPenalty
@@ -31,9 +32,11 @@ vars_state(::AdvectionDiffusion, FT) = @vars(ρ::FT)
 
 # Take the gradient of density
 vars_gradient(::AdvectionDiffusion, FT) = @vars(ρ::FT)
+vars_hypergradient(::AdvectionDiffusion, FT) = @vars(ρ::FT)
 
 # The DG auxiliary variable: D ∇ρ
 vars_diffusive(::AdvectionDiffusion, FT) = @vars(σ::SVector{3,FT})
+vars_hyperdiffusive(::AdvectionDiffusion, FT) = @vars(ω::SVector{3,FT})
 
 """
     flux_nondiffusive!(m::AdvectionDiffusion, flux::Grad, state::Vars,
@@ -77,9 +80,11 @@ Where
  - `σ` is DG auxiliary variable (`σ = D ∇ ρ` with D being the diffusion tensor)
 """
 function flux_diffusive!(m::AdvectionDiffusion, flux::Grad, state::Vars,
-                         auxDG::Vars, aux::Vars, t::Real)
+                         auxDG::Vars, auxHDG::Vars, aux::Vars, t::Real)
   σ = auxDG.σ
-  flux.ρ += -σ
+  ω = auxHDG.ω
+  #flux.ρ += -σ
+  flux.ρ += ω  / 100
 end
 
 """

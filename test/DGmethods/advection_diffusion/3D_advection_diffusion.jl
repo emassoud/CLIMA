@@ -39,7 +39,7 @@ function init_velocity_diffusion!(::Pseudo1D{α, β}, aux::Vars,
   aux.u = SVector(α, 0, 0)
 
   # diffusion of strength β in the n direction
-  n = SVector(1 / 3, 1 / 3, 1 / 3)
+  n = SVector(1 / sqrt(3), 1 / sqrt(3), 1 / sqrt(3))
   aux.D = β * n * n'
 end
 
@@ -49,7 +49,7 @@ function initial_condition!(::Pseudo1D{α, β}, state, aux, x, t) where {α, β}
   # ξT = SVector(x) - ξn * n
   #state.ρ = exp(-(ξn - μ - α * t)^2 / (4 * β * (δ + t))) / sqrt(1 + t / δ)
   #state.ρ = sin(x1) ^ 4 * exp(-t)
-  state.ρ = sin(x1 + x2 + x3 - α * t)  * exp(-β * t)
+  state.ρ = sin(x1 + x2 + x3 - α * t)  * exp(-9β * t)
 end
 
 function do_output(mpicomm, vtkdir, vtkstep, dg, Q, Qe, model, testname)
@@ -89,12 +89,12 @@ function run(mpicomm, dim, topl, N, timeend, FT, direction,
                                          )
 
   dx = min_node_distance(grid)
-  dt = dx ^ 2 / 10
+  dt = dx ^ 4 / 100 / β
   @info "time step" dt
   dt = outputtime / ceil(Int64, outputtime / dt)
 
-  #timeend = 5dt
   timeend = FT(1)
+  #timeend = 1dt
 
   model = AdvectionDiffusion{dim}(Pseudo1D{α, β}())
   dg = DGModel(model,
@@ -180,9 +180,9 @@ let
   polynomialorder = 4
   base_num_elem = 4
 
-  numlevels = 3
+  numlevels = 2
   α = 0
-  β = 1
+  β = 1 / 100
 
     for FT in (Float64,)
       result = zeros(FT, numlevels)

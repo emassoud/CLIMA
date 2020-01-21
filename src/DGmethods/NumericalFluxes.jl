@@ -310,7 +310,6 @@ function hypergrad_penalty!(::CentralHyperGradPenalty, bl::BalanceLaw,
     nhypergradstate = num_hypergradient(bl,FT)
     @unroll for j = 1:nhypergradstate
       @unroll for i = 1:ndim
-        #VF[i, j] = nM[i] * (diffP[j] - diffM[j]) / 2
         VF[i, j] = nM[i] * (diffP[j] - diffM[j]) / 2
       end
     end
@@ -369,6 +368,38 @@ function hyperdiv_boundary_penalty!(nf::CentralHyperDivPenalty, bl::BalanceLaw,
   hyperdiv_penalty!(nf, bl, VF, nM, diffM, diffP)
 end
 
+struct CentralHyperDivFlux <: DivNumericalPenalty end
+
+function hyperdiv_penalty!(::CentralHyperDivFlux, bl::BalanceLaw,
+                           VF, nM, diffM, diffP)
+  FT = eltype(diffM)
+
+  @inbounds begin
+    ndim = 3
+    nhypergradstate = num_hypergradient(bl,FT)
+    @unroll for j = 1:nhypergradstate
+      VF[j] = zero(FT)
+      @unroll for i = 1:ndim
+        VF[j] += nM[i] * (diffM[j, i] + diffP[j, i]) / 2
+      end
+    end
+  end
+end
+
+function hyperdiv_boundary_penalty!(nf::CentralHyperDivFlux, bl::BalanceLaw,
+                                     VF, nM, diffM, diffP, bctype)
+  FT = eltype(diffM)
+  # FIXME
+  #boundary_state!(nf, bl, Vars{vars_state(bl,FT)}(QP),
+  #                Vars{vars_aux(bl,FT)}(aP), nM,
+  #                Vars{vars_state(bl,FT)}(QM),
+  #                Vars{vars_aux(bl,FT)}(aM), bctype, t,
+  #                Vars{vars_state(bl,FT)}(Q1),
+  #                Vars{vars_aux(bl,FT)}(aux1))
+
+  hyperdiv_penalty!(nf, bl, VF, nM, diffM, diffP)
+end
+
 """
     CentralHyperGradFlux <: NumericalFluxDiffusive
 
@@ -384,7 +415,7 @@ function hypergrad_penalty!(::CentralHyperGradFlux, bl::BalanceLaw,
     nhypergradstate = num_hypergradient(bl,FT)
     @unroll for j = 1:nhypergradstate
       @unroll for i = 1:ndim
-        VF[i, j] = nM[i] * (diffP[j] + diffM[j]) / 2
+        VF[i, j] = nM[i] * (diffM[j] + diffP[j]) / 2
       end
     end
   end

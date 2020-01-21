@@ -89,12 +89,12 @@ function run(mpicomm, dim, topl, N, timeend, FT, direction,
                                          )
 
   dx = min_node_distance(grid)
-  dt = dx ^ 4 / 10
+  dt = dx ^ 4 / 10 / β
   @info "time step" dt
   dt = outputtime / ceil(Int64, outputtime / dt)
 
-  #timeend = 1.0
-  timeend = 1dt
+  timeend = 1.0
+  #timeend = 1dt
 
   model = AdvectionDiffusion{dim}(Pseudo1D{α, β}())
   dg = DGModel(model,
@@ -180,9 +180,9 @@ let
   polynomialorder = 4
   base_num_elem = 4
 
-  numlevels = 1
+  numlevels = 3
   α = 0
-  β = 1
+  β = 1 / 100
 
     for FT in (Float64,)
       result = zeros(FT, numlevels)
@@ -191,7 +191,7 @@ let
           for l = 1:numlevels
             Ne = 2^(l-1) * base_num_elem
             xrange = range(FT(0); length=Ne+1, stop=FT(2pi))
-            brickrange = (xrange, (0.0, 1.0))
+            brickrange = (xrange, (0.0, 2pi))
             periodicity = ntuple(j->true, dim)
             topl = StackedBrickTopology(mpicomm, brickrange;
                                         periodicity = periodicity)

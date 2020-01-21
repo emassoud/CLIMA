@@ -1,4 +1,4 @@
-using .NumericalFluxes: CentralHyperGradPenalty, CentralHyperGradFlux, CentralHyperDivPenalty
+using .NumericalFluxes: CentralHyperGradPenalty, CentralHyperGradFlux, CentralHyperDivPenalty, CentralHyperDivFlux
 using LinearAlgebra
 using ..Mesh.Grids
 
@@ -59,6 +59,10 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
   polyorder = polynomialorder(dg.grid)
 
   Np = dofs_per_element(grid)
+  
+  #x1 = vgeo[:, Grids._x1, :]
+  #x2 = vgeo[:, Grids._x2, :]
+  #x3 = vgeo[:, Grids._x3, :]
 
   communicate = !(isstacked(topology) &&
                   typeof(dg.direction) <: VerticalDirection)
@@ -93,8 +97,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
                            topology.realelems))
 
     #println("First grad")
-    #@show maximum(abs.(Qhypervisc_grad[:, 2, :]))
-    #@show maximum(abs.(Qhypervisc_grad[:, 3, :]))
+    #@show maximum(abs.(Qhypervisc_grad[:, 1, :]))
 
     communicate && MPIStateArrays.start_ghost_exchange!(Qvisc)
   end
@@ -106,19 +109,38 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
     #########################
     # Laplacian Computation #
     #########################
-    
+   
+    # STRONG
     @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
-            volumehyperviscterms_a!(bl, Val(dim), Val(polyorder), dg.direction,
-                                    Qhypervisc_grad.data, Qhypervisc_div.data, vgeo, Dmat,
-                                    topology.realelems))
+            volumehyperviscterms_a_strong!(bl, Val(dim), Val(polyorder), dg.direction,
+                                           Qhypervisc_grad.data, Qhypervisc_div.data, vgeo, Dmat,
+                                           topology.realelems))
     
     @launch(device, threads=Nfp, blocks=nrealelem,
-            facehyperviscterms_a!(bl, Val(dim), Val(polyorder), dg.direction,
-                                  #dg.hypergradnumflux,
-                                  CentralHyperDivPenalty(),
-                                  Qhypervisc_grad.data, Qhypervisc_div.data,
-                                  vgeo, sgeo, vmapM, vmapP, elemtobndy,
-                                  topology.realelems))
+            facehyperviscterms_a_strong!(bl, Val(dim), Val(polyorder), dg.direction,
+                                         #dg.hypergradnumflux,
+                                         CentralHyperDivPenalty(),
+                                         Qhypervisc_grad.data, Qhypervisc_div.data,
+                                         vgeo, sgeo, vmapM, vmapP, elemtobndy,
+                                         topology.realelems))
+    
+    # WEAK
+    #@launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
+    #        volumehyperviscterms_a_weak!(bl, Val(dim), Val(polyorder), dg.direction,
+    #                                     Qhypervisc_grad.data, Qhypervisc_div.data, vgeo, Dmat,
+    #                                     topology.realelems))
+    #
+    #@launch(device, threads=Nfp, blocks=nrealelem,
+    #        facehyperviscterms_a_weak!(bl, Val(dim), Val(polyorder), dg.direction,
+    #                                   #dg.hypergradnumflux,
+    #                                   CentralHyperDivFlux(),
+    #                                   Qhypervisc_grad.data, Qhypervisc_div.data,
+    #                                   vgeo, sgeo, vmapM, vmapP, elemtobndy,
+    #                                   topology.realelems))
+    
+    #println("First div")
+    #@show maximum(abs.(Qhypervisc_div[:, 1, :]))
+    #@show maximum(abs.(Qhypervisc_div[:, 1, :] + 3 .* sin.(x1 + x2 + x3) .* exp(-t / 100)))
 
     #####################################
     # Gradient of Laplacian Computation #
@@ -127,29 +149,44 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
     #println("before hypervisc volume")
     #@show maximum(abs.(Qhypervisc_grad[:, 2, :]))
     #@show maximum(abs.(Qhypervisc_grad[:, 3, :]))
-    
+   
+    # WEAK
     @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
-            volumehyperviscterms_b!(bl, Val(dim), Val(polyorder), dg.direction,
+            volumehyperviscterms_b_weak!(bl, Val(dim), Val(polyorder), dg.direction,
                                     Qhypervisc_grad.data, Qhypervisc_div.data, vgeo, Dmat,
                                     topology.realelems))
     
-    println("after hypervisc volume")
-    @show maximum(abs.(Qhypervisc_grad[:, 2, :]))
-    @show maximum(abs.(Qhypervisc_grad[:, 3, :]))
-    @launch(device, threads=Nfp, blocks=nrealelem,
-            facehyperviscterms_b!(bl, Val(dim), Val(polyorder), dg.direction,
-                                  #dg.hypergradnumflux,
-                                  #CentralHyperGradPenalty(),
-                                  CentralHyperGradFlux(),
-                                  Qhypervisc_grad.data, Qhypervisc_div.data,
-                                  vgeo, sgeo, vmapM, vmapP, elemtobndy,
-                                  topology.realelems))
 
-    println("after hypervisc face")
-    x1 = vgeo[:, Grids._x1, :]
-    @show maximum(abs.(Qhypervisc_grad[:, 1, :] + cos.(x1) .* exp(-t)))
-    @show maximum(abs.(Qhypervisc_grad[:, 2, :]))
-    @show maximum(abs.(Qhypervisc_grad[:, 3, :]))
+    @launch(device, threads=Nfp, blocks=nrealelem,
+            facehyperviscterms_b_weak!(bl, Val(dim), Val(polyorder), dg.direction,
+                                      #dg.hypergradnumflux,
+                                      #CentralHyperGradPenalty(),
+                                      CentralHyperGradFlux(),
+                                      Qhypervisc_grad.data, Qhypervisc_div.data,
+                                      vgeo, sgeo, vmapM, vmapP, elemtobndy,
+                                      topology.realelems))
+   
+    # STRONG
+    #@launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
+    #        volumehyperviscterms_b_strong!(bl, Val(dim), Val(polyorder), dg.direction,
+    #                                Qhypervisc_grad.data, Qhypervisc_div.data, vgeo, Dmat,
+    #                                topology.realelems))
+    #
+
+    #@launch(device, threads=Nfp, blocks=nrealelem,
+    #        facehyperviscterms_b_strong!(bl, Val(dim), Val(polyorder), dg.direction,
+    #                                  #dg.hypergradnumflux,
+    #                                  #CentralHyperGradPenalty(),
+    #                                  CentralHyperGradPenalty(),
+    #                                  Qhypervisc_grad.data, Qhypervisc_div.data,
+    #                                  vgeo, sgeo, vmapM, vmapP, elemtobndy,
+    #                                  topology.realelems))
+    #println("Second grad")
+    #@show maximum(abs.(Qhypervisc_grad[:, 1, :]))
+
+    #@show maximum(abs.(Qhypervisc_grad[:, 1, :] .+ 3 .* cos.(x1 + x2 + x3) .* exp(-t / 100)))
+    #@show maximum(abs.(Qhypervisc_grad[:, 2, :] .+ 3 .* cos.(x1 + x2 + x3) .* exp(-t / 100)))
+    #@show maximum(abs.(Qhypervisc_grad[:, 3, :] .+ 3 .* cos.(x1 + x2 + x3) .* exp(-t / 100)))
   end
 
   #Qhypervisc_div .*= -1 / 3
