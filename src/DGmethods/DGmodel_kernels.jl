@@ -721,12 +721,14 @@ function volumeviscterms!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorder},
             Qhypervisc_grad[ijk, 3(s - 1) + 3, e] = l_gradG[3, s]
           end
 
-          fill!(l_Qvisc, -zero(eltype(l_Qvisc)))
-          diffusive!(bl, Vars{vars_diffusive(bl,FT)}(l_Qvisc), Grad{vars_gradient(bl,FT)}(l_gradG),
-                     Vars{vars_state(bl,FT)}(l_Q[:, i, j, k]), Vars{vars_aux(bl,FT)}(l_aux[:, i, j, k]), t)
+          if nviscstate > 0
+            fill!(l_Qvisc, -zero(eltype(l_Qvisc)))
+            diffusive!(bl, Vars{vars_diffusive(bl,FT)}(l_Qvisc), Grad{vars_gradient(bl,FT)}(l_gradG),
+                       Vars{vars_state(bl,FT)}(l_Q[:, i, j, k]), Vars{vars_aux(bl,FT)}(l_aux[:, i, j, k]), t)
 
-          @unroll for s = 1:nviscstate
-            Qvisc[ijk, s, e] = l_Qvisc[s]
+            @unroll for s = 1:nviscstate
+              Qvisc[ijk, s, e] = l_Qvisc[s]
+            end
           end
         end
       end
@@ -933,24 +935,26 @@ function faceviscterms!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorder},
         if bctype == 0
           hypergrad_penalty!(hypergradnumpenalty, bl, l_gradG,
                              nM, l_GM, l_GP)
-          diffusive_penalty!(gradnumpenalty, bl, l_Qvisc, nM, l_GM, l_QM,
-                             l_auxM, l_GP, l_QP, l_auxP, t)
-        else
-          if (dim == 2 && f == 3) || (dim == 3 && f == 5)
-            # Loop up the first element along all horizontal elements
-            @unroll for s = 1:nstate
-              l_Q_bot1[s] = Q[n + Nqk^2, s, e]
-            end
-            @unroll for s = 1:nauxstate
-              l_aux_bot1[s] = auxstate[n + Nqk^2,s, e]
-            end
+          if nviscstate > 0
+            diffusive_penalty!(gradnumpenalty, bl, l_Qvisc, nM, l_GM, l_QM,
+                               l_auxM, l_GP, l_QP, l_auxP, t)
           end
-          hypergrad_boundary_penalty!(hypergradnumpenalty, bl, l_gradG, nM, l_GM,
-                                      l_QM, l_auxM, l_GP, l_QP, l_auxP, bctype,
-                                      t, l_Q_bot1, l_aux_bot1)
-          diffusive_boundary_penalty!(gradnumpenalty, bl, l_Qvisc, nM, l_GM,
-                                      l_QM, l_auxM, l_GP, l_QP, l_auxP, bctype,
-                                      t, l_Q_bot1, l_aux_bot1)
+        else
+          #if (dim == 2 && f == 3) || (dim == 3 && f == 5)
+          #  # Loop up the first element along all horizontal elements
+          #  @unroll for s = 1:nstate
+          #    l_Q_bot1[s] = Q[n + Nqk^2, s, e]
+          #  end
+          #  @unroll for s = 1:nauxstate
+          #    l_aux_bot1[s] = auxstate[n + Nqk^2,s, e]
+          #  end
+          #end
+          #hypergrad_boundary_penalty!(hypergradnumpenalty, bl, l_gradG, nM, l_GM,
+          #                            l_QM, l_auxM, l_GP, l_QP, l_auxP, bctype,
+          #                            t, l_Q_bot1, l_aux_bot1)
+          #diffusive_boundary_penalty!(gradnumpenalty, bl, l_Qvisc, nM, l_GM,
+          #                            l_QM, l_auxM, l_GP, l_QP, l_auxP, bctype,
+          #                            t, l_Q_bot1, l_aux_bot1)
         end
 
         @unroll for s = 1:nviscstate
@@ -1442,22 +1446,27 @@ end
 function volumehyperviscterms_b_weak!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorder},
                                       ::direction,
                                       Qhypervisc_grad, Qhypervisc_div,
-                                      vgeo, D, elems) where {dim, polyorder, direction}
+                                      Q, auxstate,
+                                      vgeo, D, elems, t) where {dim, polyorder, direction}
   N = polyorder
 
   FT = eltype(Qhypervisc_grad)
+  nstate = num_state(bl,FT)
   nhypergradstate = num_hypergradient(bl,FT)
   nhyperviscstate = num_hyperdiffusive(bl,FT)
-  #nauxstate = num_aux(bl,FT)
+  nauxstate = num_aux(bl,FT)
+  ngradtransformstate = nstate
 
   Nq = N + 1
   Nqk = dim == 2 ? 1 : Nq
 
   s_G = @shmem FT (Nq, Nq, Nqk, nhypergradstate)
   s_D = @shmem FT (Nq, Nq)
+  l_Q = @scratch FT (ngradtransformstate, Nq, Nq, Nqk) 3
+  l_aux = @scratch FT (nauxstate, Nq, Nq, Nqk) 3
 
   l_gradG = MArray{Tuple{3, nhypergradstate}, FT}(undef)
-  #l_Qhypervisc = MArray{Tuple{nhyperviscstate}, FT}(undef)
+  l_Qhypervisc = MArray{Tuple{nhyperviscstate}, FT}(undef)
 
   @inbounds @loop for k in (1; threadIdx().z)
     @loop for j in (1:Nq; threadIdx().y)
@@ -1472,6 +1481,15 @@ function volumehyperviscterms_b_weak!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorde
       @loop for j in (1:Nq; threadIdx().y)
         @loop for i in (1:Nq; threadIdx().x)
           ijk = i + Nq * ((j-1) + Nq * (k-1))
+          
+          @unroll for s = 1:ngradtransformstate
+            l_Q[s, i, j, k] = Q[ijk, s, e]
+          end
+
+          @unroll for s = 1:nauxstate
+            l_aux[s, i, j, k] = auxstate[ijk, s, e]
+          end
+
           @unroll for s = 1:nhypergradstate
             s_G[i, j, k, s] = Qhypervisc_div[ijk, s, e]
           end
@@ -1535,18 +1553,19 @@ function volumehyperviscterms_b_weak!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorde
             #l_gradG[2, s] = ξ1x2 * Gξ1
             #l_gradG[3, s] = ξ1x3 * Gξ1
             
-            l_gradG[1, s] = Gξ1x1
-            l_gradG[2, s] = Gξ1x2
-            l_gradG[3, s] = Gξ1x3
+            MI = vgeo[ijk, _MI, e]
+            l_gradG[1, s] = -MI * Gξ1x1
+            l_gradG[2, s] = -MI * Gξ1x2
+            l_gradG[3, s] = -MI * Gξ1x3
 
             if dim == 3 || (dim == 2 && direction == EveryDirection)
               #l_gradG[1, s] += ξ2x1 * Gξ2
               #l_gradG[2, s] += ξ2x2 * Gξ2
               #l_gradG[3, s] += ξ2x3 * Gξ2
               
-              l_gradG[1, s] += Gξ2x1
-              l_gradG[2, s] += Gξ2x2
-              l_gradG[3, s] += Gξ2x3
+              l_gradG[1, s] -= MI * Gξ2x1
+              l_gradG[2, s] -= MI * Gξ2x2
+              l_gradG[3, s] -= MI * Gξ2x3
             end
 
             if dim == 3 && direction == EveryDirection
@@ -1554,22 +1573,30 @@ function volumehyperviscterms_b_weak!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorde
               #l_gradG[2, s] += ξ3x2 * Gξ3
               #l_gradG[3, s] += ξ3x3 * Gξ3
               
-              l_gradG[1, s] += Gξ3x1
-              l_gradG[2, s] += Gξ3x2
-              l_gradG[3, s] += Gξ3x3
+              l_gradG[1, s] -= MI * Gξ3x1
+              l_gradG[2, s] -= MI * Gξ3x2
+              l_gradG[3, s] -= MI * Gξ3x3
             end
           end
+          
+          #MI = vgeo[ijk, _MI, e]
+          #@unroll for s = 1:nhypergradstate
+          #  Qhypervisc_grad[ijk, 3(s - 1) + 1, e] = l_gradG[1, s]
+          #  Qhypervisc_grad[ijk, 3(s - 1) + 2, e] = l_gradG[2, s]
+          #  Qhypervisc_grad[ijk, 3(s - 1) + 3, e] = l_gradG[3, s]
+          #end
 
-          #fill!(l_Qvisc, -zero(eltype(l_Qvisc)))
-          #hyperdiffusive!(bl, Vars{vars_diffusive(bl,FT)}(l_Qvisc), Grad{vars_gradient(bl,FT)}(l_gradG),
-          #                Vars{vars_state(bl,FT)}(l_Q[:, i, j, k]), Vars{vars_aux(bl,FT)}(l_aux[:, i, j, k]), t)
-
-          MI = vgeo[ijk, _MI, e]
-          @unroll for s = 1:nhypergradstate
-            Qhypervisc_grad[ijk, 3(s - 1) + 1, e] = -l_gradG[1, s] * MI
-            Qhypervisc_grad[ijk, 3(s - 1) + 2, e] = -l_gradG[2, s] * MI
-            Qhypervisc_grad[ijk, 3(s - 1) + 3, e] = -l_gradG[3, s] * MI
+          fill!(l_Qhypervisc, -zero(eltype(l_Qhypervisc)))
+          hyperdiffusive!(bl,
+                          Vars{vars_hyperdiffusive(bl,FT)}(l_Qhypervisc),
+                          Grad{vars_hypergradient(bl,FT)}(l_gradG),
+                          Vars{vars_state(bl,FT)}(l_Q[:, i, j, k]),
+                          Vars{vars_aux(bl,FT)}(l_aux[:, i, j, k]),
+                          t)
+          @unroll for s = 1:nhyperviscstate
+            Qhypervisc_grad[ijk, s, e] = l_Qhypervisc[s]
           end
+
         end
       end
     end
@@ -1580,11 +1607,17 @@ end
 function facehyperviscterms_b_weak!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorder},
                                     ::direction,
                                     hypergradnumpenalty,
-                                    Qhypervisc_grad, Qhypervisc_div, vgeo, sgeo, vmapM, vmapP,
-                                    elemtobndy, elems) where {dim, polyorder, direction}
+                                    Qhypervisc_grad, Qhypervisc_div,
+                                    Q, auxstate,
+                                    vgeo, sgeo, vmapM, vmapP,
+                                    elemtobndy, elems, t) where {dim, polyorder, direction}
   N = polyorder
   FT = eltype(Qhypervisc_grad)
+  nstate = num_state(bl,FT)
   nhypergradstate = num_hypergradient(bl,FT)
+  nhyperviscstate = num_hyperdiffusive(bl,FT)
+  nauxstate = num_aux(bl,FT)
+  ngradtransformstate = nstate
 
   if dim == 1
     Np = (N+1)
@@ -1609,9 +1642,15 @@ function facehyperviscterms_b_weak!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorder}
 
   Nqk = dim == 2 ? 1 : N+1
 
-  l_QM = MArray{Tuple{nhypergradstate}, FT}(undef)
-  l_QP = MArray{Tuple{nhypergradstate}, FT}(undef)
-  l_gradG = MArray{Tuple{3, nhypergradstate}, FT}(undef)
+  l_QlapM = MArray{Tuple{nhypergradstate}, FT}(undef)
+  l_QlapP = MArray{Tuple{nhypergradstate}, FT}(undef)
+  l_Qhypervisc = MArray{Tuple{nhyperviscstate}, FT}(undef)
+  
+  l_QM = MArray{Tuple{ngradtransformstate}, FT}(undef)
+  l_auxM = MArray{Tuple{nauxstate}, FT}(undef)
+
+  l_QP = MArray{Tuple{ngradtransformstate}, FT}(undef)
+  l_auxP = MArray{Tuple{nauxstate}, FT}(undef)
 
   @inbounds @loop for e in (elems; blockIdx().x)
     for f in faces
@@ -1624,30 +1663,51 @@ function facehyperviscterms_b_weak!(bl::BalanceLaw, ::Val{dim}, ::Val{polyorder}
         vidM, vidP = ((idM - 1) % Np) + 1,  ((idP - 1) % Np) + 1
 
         # Load minus side data
+        @unroll for s = 1:ngradtransformstate
+          l_QM[s] = Q[vidM, s, eM]
+        end
+        
+        @unroll for s = 1:nauxstate
+          l_auxM[s] = auxstate[vidM, s, eM]
+        end
+
         @unroll for s = 1:nhypergradstate
-          l_QM[s] = Qhypervisc_div[vidM, s, eM]
+          l_QlapM[s] = Qhypervisc_div[vidM, s, eM]
         end
 
         # Load plus side data
-        @unroll for s = 1:nhypergradstate
-          l_QP[s] = Qhypervisc_div[vidP, s, eP]
+        @unroll for s = 1:ngradtransformstate
+          l_QP[s] = Q[vidP, s, eP]
         end
-       
+        
+        @unroll for s = 1:nauxstate
+          l_auxP[s] = auxstate[vidP, s, eP]
+        end
+
+        @unroll for s = 1:nhypergradstate
+          l_QlapP[s] = Qhypervisc_div[vidP, s, eP]
+        end
 
         bctype = elemtobndy[f, e]
         if bctype == 0
-          hypergrad_penalty!(hypergradnumpenalty, bl, l_gradG,
-                             nM, l_QM, l_QP)
+          #hypergrad_penalty!(hypergradnumpenalty, bl, l_gradG,
+          #                   nM, l_QlapM, l_QlapP)
+          hypergrad_penalty!(hypergradnumpenalty, bl, l_Qhypervisc,
+                             nM, l_QlapM, l_QM, l_auxM, l_QlapP, l_QP, l_auxP, t)
         else
           #hypergrad_boundary_penalty!(hypergradnumpenalty, bl, l_gradG, nM, l_GM,
           #                            l_QM, l_auxM, l_GP, l_QP, l_auxP, bctype,
           #                            t, l_Q_bot1, l_aux_bot1)
         end
 
-        @unroll for s = 1:nhypergradstate
-          Qhypervisc_grad[vidM, 3(s - 1) + 1, eM] += vMI * sM * l_gradG[1, s]
-          Qhypervisc_grad[vidM, 3(s - 1) + 2, eM] += vMI * sM * l_gradG[2, s]
-          Qhypervisc_grad[vidM, 3(s - 1) + 3, eM] += vMI * sM * l_gradG[3, s]
+        #@unroll for s = 1:nhypergradstate
+        #  Qhypervisc_grad[vidM, 3(s - 1) + 1, eM] += vMI * sM * l_gradG[1, s]
+        #  Qhypervisc_grad[vidM, 3(s - 1) + 2, eM] += vMI * sM * l_gradG[2, s]
+        #  Qhypervisc_grad[vidM, 3(s - 1) + 3, eM] += vMI * sM * l_gradG[3, s]
+        #end
+        
+        @unroll for s = 1:nhyperviscstate
+          Qhypervisc_grad[vidM, s, eM] += vMI * sM * l_Qhypervisc[s]
         end
       end
       # Need to wait after even faces to avoid race conditions

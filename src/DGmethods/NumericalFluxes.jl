@@ -9,8 +9,9 @@ using GPUifyLoops: @unroll
 import ..DGmethods: BalanceLaw, Grad, Vars, vars_state, vars_diffusive,
                     vars_aux, vars_gradient, boundary_state!, wavespeed,
                     flux_nondiffusive!, flux_diffusive!, diffusive!, num_state,
-                    num_gradient, gradvariables!, num_hypergradient,
-                    vars_hyperdiffusive
+                    num_gradient, gradvariables!,
+                    num_hypergradient, vars_hypergradient,
+                    vars_hyperdiffusive, hyperdiffusive!
 
 """
     GradNumericalPenalty
@@ -407,17 +408,22 @@ end
 struct CentralHyperGradFlux <: NumericalFluxDiffusive end
 
 function hypergrad_penalty!(::CentralHyperGradFlux, bl::BalanceLaw,
-                            VF, nM, diffM, diffP)
+                            VF, nM, diffM, QM, aM, diffP, QP, aP, t)
   FT = eltype(diffM)
-
   @inbounds begin
     ndim = 3
     nhypergradstate = num_hypergradient(bl,FT)
+    n_Δdiff = similar(VF, Size(ndim, nhypergradstate))
     @unroll for j = 1:nhypergradstate
       @unroll for i = 1:ndim
-        VF[i, j] = nM[i] * (diffM[j] + diffP[j]) / 2
+        n_Δdiff[i, j] = nM[i] * (diffM[j] + diffP[j]) / 2
       end
     end
+    hyperdiffusive!(bl, Vars{vars_hyperdiffusive(bl,FT)}(VF),
+                    Grad{vars_hypergradient(bl,FT)}(n_Δdiff),
+                    Vars{vars_state(bl,FT)}(QM),
+                    Vars{vars_aux(bl,FT)}(aM),
+                    t)
   end
 end
 

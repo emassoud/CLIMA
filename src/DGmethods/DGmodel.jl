@@ -48,6 +48,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
 
   FT = eltype(Q)
   nviscstate = num_diffusive(bl, FT)
+  nhyperviscstate = num_hyperdiffusive(bl, FT)
 
   lgl_weights_vec = grid.ω
   Dmat = grid.D
@@ -77,7 +78,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
     MPIStateArrays.start_ghost_exchange!(auxstate)
   end
 
-  if nviscstate > 0
+  if nviscstate > 0 || nhyperviscstate > 0
 
     @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
             volumeviscterms!(bl, Val(dim), Val(polyorder), dg.direction, Q.data,
@@ -104,7 +105,7 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
   
 
   #@show Qhypervisc_div[:]
-  if nviscstate > 0
+  if nhyperviscstate > 0
 
     #########################
     # Laplacian Computation #
@@ -153,8 +154,10 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
     # WEAK
     @launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
             volumehyperviscterms_b_weak!(bl, Val(dim), Val(polyorder), dg.direction,
-                                    Qhypervisc_grad.data, Qhypervisc_div.data, vgeo, Dmat,
-                                    topology.realelems))
+                                    Qhypervisc_grad.data, Qhypervisc_div.data,
+                                    Q.data, auxstate.data,
+                                    vgeo, Dmat,
+                                    topology.realelems, t))
     
 
     @launch(device, threads=Nfp, blocks=nrealelem,
@@ -163,8 +166,9 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
                                       #CentralHyperGradPenalty(),
                                       CentralHyperGradFlux(),
                                       Qhypervisc_grad.data, Qhypervisc_div.data,
+                                      Q.data, auxstate.data,
                                       vgeo, sgeo, vmapM, vmapP, elemtobndy,
-                                      topology.realelems))
+                                      topology.realelems, t))
    
     # STRONG
     #@launch(device, threads=(Nq, Nq, Nqk), blocks=nrealelem,
@@ -187,6 +191,9 @@ function (dg::DGModel)(dQdt, Q, ::Nothing, t; increment=false)
     #@show maximum(abs.(Qhypervisc_grad[:, 1, :] .+ 3 .* cos.(x1 + x2 + x3) .* exp(-t / 100)))
     #@show maximum(abs.(Qhypervisc_grad[:, 2, :] .+ 3 .* cos.(x1 + x2 + x3) .* exp(-t / 100)))
     #@show maximum(abs.(Qhypervisc_grad[:, 3, :] .+ 3 .* cos.(x1 + x2 + x3) .* exp(-t / 100)))
+    #@show maximum(abs.(Qhypervisc_grad[:, 1, :]))
+    #@show maximum(abs.(Qhypervisc_grad[:, 2, :] .+ 3 // 100 .* cos.(x1 + x2 + x3) .* exp(-3t / 100)))
+    #@show maximum(abs.(Qhypervisc_grad[:, 3, :]))
   end
 
   #Qhypervisc_div .*= -1 / 3
